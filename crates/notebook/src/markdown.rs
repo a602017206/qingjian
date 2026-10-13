@@ -23,7 +23,15 @@ pub fn parse(text: &str) -> Vec<Value> {
         let mut body = line.to_owned();
         let mut checked = false;
         let mut language = "";
-        if let Some(lang) = line.strip_prefix("```") {
+        if line.trim_start().starts_with('|') && i < lines.len() && table_separator(lines[i]) {
+            kind = "table";
+            let mut table = vec![line];
+            while i < lines.len() && lines[i].trim_start().starts_with('|') {
+                table.push(lines[i]);
+                i += 1;
+            }
+            body = table.join("\n");
+        } else if let Some(lang) = line.strip_prefix("```") {
             kind = "code";
             language = lang;
             let mut code = vec![];
@@ -80,6 +88,14 @@ pub fn parse(text: &str) -> Vec<Value> {
     }
     flush(&mut paragraph, &mut blocks);
     blocks
+}
+fn table_separator(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with('|')
+        && line.trim_matches('|').split('|').all(|cell| {
+            let value = cell.trim().trim_matches(':');
+            value.len() >= 3 && value.bytes().all(|b| b == b'-')
+        })
 }
 pub fn export(blocks: &Value) -> String {
     blocks

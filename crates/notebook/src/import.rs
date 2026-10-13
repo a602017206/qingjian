@@ -274,6 +274,18 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
             p["createdAt"] = json!(now());
             p["updatedAt"] = json!(now());
             p["deleted"] = json!(false);
+            if let Some(columns) = p
+                .get_mut("database")
+                .and_then(|db| db.get_mut("columns"))
+                .and_then(Value::as_array_mut)
+            {
+                for column in columns {
+                    let old_target = text(column, "targetDatabaseId").to_owned();
+                    if let Some(new_target) = original_ids.get(&old_target) {
+                        column["targetDatabaseId"] = json!(new_target);
+                    }
+                }
+            }
             if let Some(blocks) = p["blocks"].as_array_mut() {
                 for block in blocks {
                     let mut body = text(block, "text").to_owned();

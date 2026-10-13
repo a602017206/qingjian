@@ -106,6 +106,41 @@ pub(crate) fn validate_page(page: &Value) -> Result<()> {
         {
             return Err("数据库属性格式无效".into());
         }
+        let mut column_ids = HashSet::new();
+        for column in columns {
+            if !column_ids.insert(text(column, "id")) {
+                return Err("数据库属性标识重复".into());
+            }
+            if let Some(options) = column.get("options") {
+                if !options
+                    .as_array()
+                    .map(|items| items.iter().all(Value::is_string))
+                    .unwrap_or(false)
+                {
+                    return Err("属性选项格式无效".into());
+                }
+            }
+            if let Some(formula) = column.get("formula") {
+                if !formula.is_string() {
+                    return Err("公式必须是文本表达式".into());
+                }
+            }
+            for key in ["targetDatabaseId", "relationId", "targetPropertyId"] {
+                if let Some(value) = column.get(key) {
+                    if !value.is_string()
+                        || (!text(column, key).is_empty() && !valid_id(text(column, key)))
+                    {
+                        return Err("属性关联标识无效".into());
+                    }
+                }
+            }
+        }
+        let mut row_ids = HashSet::new();
+        for row in rows {
+            if !row_ids.insert(text(row, "id")) {
+                return Err("数据库记录标识重复".into());
+            }
+        }
         if rows.iter().any(|r| {
             !r.is_object()
                 || !valid_id(text(r, "id"))

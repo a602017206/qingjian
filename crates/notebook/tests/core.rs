@@ -419,3 +419,55 @@ fn zip_attachment_survives_backup_as_original_bytes() {
         bytes
     );
 }
+
+#[test]
+fn database_relations_follow_new_page_ids_after_backup_import() {
+    use base64::Engine;
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::new(dir.path()).unwrap();
+    let w = create(&mut s, "关联导入");
+    let bytes=zip_files(&[("manifest.json","{\"format\":\"qingjian\",\"version\":1}"),("pages/tasks.json","{\"id\":\"tasks\",\"title\":\"任务\",\"blocks\":[],\"database\":{\"columns\":[{\"id\":\"name\",\"name\":\"任务\",\"type\":\"text\"}],\"rows\":[{\"id\":\"t1\",\"values\":{\"name\":\"设计\"}}]}}"),("pages/projects.json","{\"id\":\"projects\",\"title\":\"项目\",\"blocks\":[],\"database\":{\"columns\":[{\"id\":\"name\",\"name\":\"项目\",\"type\":\"text\"},{\"id\":\"tasks\",\"name\":\"任务\",\"type\":\"relation\",\"targetDatabaseId\":\"tasks\"}],\"rows\":[{\"id\":\"p1\",\"values\":{\"name\":\"轻笺\",\"tasks\":\"[\\\"t1\\\"]\"}}]}}")]);
+    s.dispatch("import",json!({"workspaceId":w,"name":"backup.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let ps = pages.as_array().unwrap();
+    let tasks = ps.iter().find(|p| p["title"] == "任务").unwrap();
+    let projects = ps.iter().find(|p| p["title"] == "项目").unwrap();
+    assert_eq!(
+        projects["database"]["columns"][1]["targetDatabaseId"],
+        tasks["id"]
+    );
+    assert_eq!(
+        projects["database"]["rows"][0]["values"]["tasks"],
+        "[\"t1\"]"
+    );
+}
+#[test]
+fn markdown_simple_table_imports_as_editable_block() {
+    use base64::Engine;
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::new(dir.path()).unwrap();
+    let w = create(&mut s, "表格导入");
+    let input = "# 表格\n\n| 名称 | 说明 |\n| --- | --- |\n| 轻笺 | 中文内容 |\n\n后续正文";
+    s.dispatch("import",json!({"workspaceId":w,"name":"table.md","data":base64::engine::general_purpose::STANDARD.encode(input)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    assert_eq!(pages[0]["blocks"][0]["type"], "table");
+    assert!(pages[0]["blocks"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("轻笺"));
+    assert_eq!(pages[0]["blocks"][1]["type"], "paragraph");
+}
+
+#[test]
+fn malformed_advanced_property_configuration_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::new(dir.path()).unwrap();
+    let w = create(&mut s, "属性配置");
+    for column in [
+        json!({"id":"x","name":"多选","type":"multiselect","options":{}}),
+        json!({"id":"x","name":"公式","type":"formula","formula":1}),
+        json!({"id":"x","name":"关联","type":"relation","targetDatabaseId":"../../path"}),
+    ] {
+        assert!(s.dispatch("save",json!({"workspaceId":w,"page":{"title":"配置","database":{"columns":[column],"rows":[]}}})).is_err());
+    }
+}

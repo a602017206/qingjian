@@ -42,7 +42,9 @@ jobs:
       - name: 安装测试浏览器
         run: npx playwright install --with-deps chromium
       - name: 验证完整界面流程
-        run: npm run test:e2e
+        run: |
+          npm run test:e2e
+          npm run test:e2e:database
       - name: 保存界面验证结果
         if: always()
         uses: actions/upload-artifact@v4
