@@ -1,0 +1,15 @@
+node_modules/
+target/
+dist/
+.data/
+.test-data/
+src-tauri/gen/
+artifacts/
+test-results/
+playwright-report/
+*.apk
+*.ipa
+*.aab
+*.log
+.DS_Store
+coverage.out

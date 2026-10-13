@@ -1,0 +1,57 @@
+name: 桌面应用构建
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  desktop:
+    name: ${{ matrix.label }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            label: 苹果桌面
+            bundle: app
+            artifact: macos
+          - os: windows-latest
+            label: 微软桌面
+            bundle: nsis
+            artifact: windows
+          - os: ubuntu-24.04
+            label: Linux桌面
+            bundle: deb
+            artifact: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: 读取项目
+        uses: actions/checkout@v4
+      - name: 配置运行环境
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: 配置编译工具
+        uses: dtolnay/rust-toolchain@stable
+      - name: 缓存编译结果
+        uses: Swatinem/rust-cache@v2
+      - name: 安装系统依赖
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: 安装界面依赖
+        run: npm ci
+      - name: 验证共享核心
+        run: cargo test --locked -p notebook-core
+      - name: 构建桌面安装包
+        run: npm run tauri -- build --bundles ${{ matrix.bundle }} -- --locked
+      - name: 保存安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingjian-${{ matrix.artifact }}
+          path: |
+            target/release/bundle/**/*.deb
+            target/release/bundle/**/*.exe
+            target/release/bundle/**/*.app
+          if-no-files-found: error
