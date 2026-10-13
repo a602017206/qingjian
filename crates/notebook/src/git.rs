@@ -329,3 +329,32 @@ pub(crate) fn read_version(dir: &Path, id: &str, oid: &str) -> Result<Value> {
     let blob = repo.find_blob(entry.id()).map_err(err)?;
     serde_json::from_slice(blob.content()).map_err(err)
 }
+
+pub(crate) fn restore_page_assets(dir: &Path, page: &Value, oid: &str) -> Result<()> {
+    let repo = Repository::open(dir).map_err(err)?;
+    let commit = repo
+        .find_commit(Oid::from_str(oid).map_err(err)?)
+        .map_err(err)?;
+    let tree = commit.tree().map_err(err)?;
+    for name in crate::cleanup::asset_refs(page) {
+        let path = dir.join("assets").join(&name);
+        if let Ok(meta) = std::fs::symlink_metadata(&path) {
+            if !meta.file_type().is_file() {
+                return Err("历史附件路径包含特殊文件".into());
+            }
+            continue;
+        }
+        let entry = tree
+            .get_path(&Path::new("assets").join(&name))
+            .map_err(|_| format!("历史附件缺失：{name}"))?;
+        let blob = repo.find_blob(entry.id()).map_err(err)?;
+        if entry.filemode() != 0o100644 && entry.filemode() != 0o100755 {
+            return Err("历史附件不是普通文件".into());
+        }
+        if blob.size() > 128 << 20 {
+            return Err("历史附件超过恢复限制".into());
+        }
+        crate::atomic(&path, blob.content())?;
+    }
+    Ok(())
+}

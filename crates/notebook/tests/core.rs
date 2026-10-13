@@ -526,3 +526,194 @@ fn notion_csv_properties_and_database_children_are_preserved() {
         .iter()
         .any(|v| v.as_str().unwrap().contains("推断")));
 }
+
+fn revisions(pages: &serde_json::Value) -> serde_json::Value {
+    serde_json::Value::Object(
+        pages
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| (p["id"].as_str().unwrap().to_owned(), p["revision"].clone()))
+            .collect(),
+    )
+}
+#[test]
+fn bulk_trash_validates_all_targets_and_includes_children_once() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "批量回收");
+    let parent = s
+        .dispatch("save", json!({"workspaceId":w,"page":{"title":"父页面"}}))
+        .unwrap();
+    let child = s
+        .dispatch(
+            "save",
+            json!({"workspaceId":w,"page":{"title":"子页面","parentId":parent["id"]}}),
+        )
+        .unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    assert!(s.dispatch("trashMany",json!({"workspaceId":w,"ids":[parent["id"],"missing"],"deleted":true,"revisions":revisions(&pages)})).is_err());
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w})).unwrap(),
+        pages
+    );
+    let result=s.dispatch("trashMany",json!({"workspaceId":w,"ids":[parent["id"],child["id"]],"deleted":true,"revisions":revisions(&pages)})).unwrap();
+    assert_eq!(result["count"], 2);
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    assert!(pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["deleted"] == true));
+}
+#[test]
+fn permanent_trash_cleanup_preserves_shared_assets_and_requires_current_confirmation() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "空间清理");
+    let shared=s.dispatch("attach",json!({"workspaceId":w,"name":"shared.png","data":base64::engine::general_purpose::STANDARD.encode(vec![1u8;4096])})).unwrap()["name"].as_str().unwrap().to_owned();
+    let unique=s.dispatch("attach",json!({"workspaceId":w,"name":"unique.png","data":base64::engine::general_purpose::STANDARD.encode(vec![2u8;8192])})).unwrap()["name"].as_str().unwrap().to_owned();
+    let active=s.dispatch("save",json!({"workspaceId":w,"page":{"title":"保留","blocks":[{"id":"b","type":"paragraph","text":format!("[附件](asset:{shared})")}]}})).unwrap();
+    let trash=s.dispatch("save",json!({"workspaceId":w,"page":{"title":"删除","blocks":[{"id":"b","type":"paragraph","text":format!("[附件](asset:{shared}) [附件](asset:{unique})")}]}})).unwrap();
+    s.dispatch(
+        "trash",
+        json!({"workspaceId":w,"id":trash["id"],"deleted":true}),
+    )
+    .unwrap();
+    assert!(s
+        .dispatch(
+            "purgePreview",
+            json!({"workspaceId":w,"ids":[active["id"]]})
+        )
+        .is_err());
+    let plan = s
+        .dispatch("purgePreview", json!({"workspaceId":w,"all":true}))
+        .unwrap();
+    assert_eq!(plan["assets"], json!([unique]));
+    assert!(s
+        .dispatch("purgeTrash", json!({"workspaceId":w,"preview":plan}))
+        .is_err());
+    let mut changed = active.clone();
+    changed["title"] = json!("更新后的保留页");
+    s.dispatch("save", json!({"workspaceId":w,"page":changed}))
+        .unwrap();
+    assert!(s
+        .dispatch(
+            "purgeTrash",
+            json!({"workspaceId":w,"preview":plan,"confirmed":true})
+        )
+        .is_err());
+    let plan = s
+        .dispatch("purgePreview", json!({"workspaceId":w,"all":true}))
+        .unwrap();
+    let before = s.dispatch("stats", json!({"workspaceId":w})).unwrap()["total"]
+        .as_u64()
+        .unwrap();
+    let result = s
+        .dispatch(
+            "purgeTrash",
+            json!({"workspaceId":w,"preview":plan,"confirmed":true}),
+        )
+        .unwrap();
+    assert_eq!(result["pages"], 1);
+    assert_eq!(result["assets"], 1);
+    assert!(result["bytes"].as_u64().unwrap() > 8192);
+    let after = s.dispatch("stats", json!({"workspaceId":w})).unwrap()["total"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(before - after, result["bytes"].as_u64().unwrap());
+    assert!(s
+        .dispatch("asset", json!({"workspaceId":w,"name":shared}))
+        .is_ok());
+    assert!(s
+        .dispatch("asset", json!({"workspaceId":w,"name":unique}))
+        .is_err());
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+#[test]
+fn history_restore_recovers_an_attachment_removed_by_trash_cleanup() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "历史附件");
+    let name=s.dispatch("attach",json!({"workspaceId":w,"name":"old.png","data":base64::engine::general_purpose::STANDARD.encode(b"old-image")})).unwrap()["name"].as_str().unwrap().to_owned();
+    let mut page=s.dispatch("save",json!({"workspaceId":w,"page":{"title":"保留历史页","blocks":[{"id":"b","type":"paragraph","text":format!("[附件](asset:{name})")}]}})).unwrap();
+    let commit = s.dispatch("commit", json!({"workspaceId":w})).unwrap()["commit"].clone();
+    page["blocks"] = json!([]);
+    let page = s
+        .dispatch("save", json!({"workspaceId":w,"page":page}))
+        .unwrap();
+    let removed=s.dispatch("save",json!({"workspaceId":w,"page":{"title":"回收页","blocks":[{"id":"b","type":"paragraph","text":format!("[附件](asset:{name})")}]}})).unwrap();
+    s.dispatch(
+        "trash",
+        json!({"workspaceId":w,"id":removed["id"],"deleted":true}),
+    )
+    .unwrap();
+    let plan = s
+        .dispatch("purgePreview", json!({"workspaceId":w,"all":true}))
+        .unwrap();
+    s.dispatch(
+        "purgeTrash",
+        json!({"workspaceId":w,"preview":plan,"confirmed":true}),
+    )
+    .unwrap();
+    assert!(s
+        .dispatch("asset", json!({"workspaceId":w,"name":name}))
+        .is_err());
+    s.dispatch(
+        "restore",
+        json!({"workspaceId":w,"id":page["id"],"commit":commit}),
+    )
+    .unwrap();
+    assert!(s
+        .dispatch("asset", json!({"workspaceId":w,"name":name}))
+        .is_ok());
+}
+#[test]
+fn bulk_trash_does_not_rewrite_children_already_in_trash() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "保留已回收页");
+    let parent = s
+        .dispatch("save", json!({"workspaceId":w,"page":{"title":"父"}}))
+        .unwrap();
+    let child = s
+        .dispatch(
+            "save",
+            json!({"workspaceId":w,"page":{"title":"子","parentId":parent["id"]}}),
+        )
+        .unwrap();
+    s.dispatch(
+        "trash",
+        json!({"workspaceId":w,"id":child["id"],"deleted":true}),
+    )
+    .unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let before = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == child["id"])
+        .unwrap()
+        .clone();
+    let result=s.dispatch("trashMany",json!({"workspaceId":w,"ids":[parent["id"]],"revisions":revisions(&pages),"deleted":true})).unwrap();
+    assert_eq!(result["count"], 1);
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == child["id"])
+            .unwrap(),
+        &before
+    );
+}

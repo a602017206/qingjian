@@ -1,3 +1,4 @@
+mod cleanup;
 mod git;
 pub use git::configure_network;
 mod import;
@@ -542,6 +543,9 @@ impl Store {
                     "pages" => Ok(json!(Self::pages_at(&dir)?)),
                     "save" => Self::save_at(&dir, q["page"].clone()),
                     "trash" => self.trash(&dir, text(&q, "id"), q["deleted"] == true),
+                    "trashMany" => cleanup::trash_many(&dir, &q),
+                    "purgePreview" => cleanup::preview(&dir, &q),
+                    "purgeTrash" => cleanup::purge(&dir, &q),
                     "stats" => self.stats(&dir),
                     "status" => git::status(&dir, &w),
                     "commit" => git::commit(&dir, text(&q, "message")),
@@ -564,6 +568,7 @@ impl Store {
                             p["revision"] = current["revision"].clone()
                         }
                         p["deleted"] = json!(false);
+                        git::restore_page_assets(&dir, &p, text(&q, "commit"))?;
                         Self::save_at(&dir, p)
                     }
                     "import" => {
