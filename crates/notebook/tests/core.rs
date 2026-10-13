@@ -717,3 +717,166 @@ fn bulk_trash_does_not_rewrite_children_already_in_trash() {
         &before
     );
 }
+
+#[test]
+fn notion_export_plain_folder_and_full_csv_form_one_database_parent() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "真实结构样本");
+    let bytes=zip_files(&[
+ ("私人与共享/影视剧 1234567890abcdef1234567890abcdef.csv","名称,是否观看,类型\n同名,观看中,动漫\n同名,未观看,电视剧\n"),
+ ("私人与共享/影视剧 1234567890abcdef1234567890abcdef_all.csv","名称,描述,是否观看,类型\n同名,文字二,未观看,电视剧\n同名,文字一,观看中,动漫\n"),
+ ("私人与共享/影视剧/同名 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md","# 同名\n\n是否观看: 观看中\n类型: 动漫\n\n正文一"),
+ ("私人与共享/影视剧/同名 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md","# 同名\n\n是否观看: 未观看\n类型: 电视剧\n\n正文二"),
+ ("入口.md","# 入口\n\n[影视](私人与共享/影视剧%201234567890abcdef1234567890abcdef.csv)\n[全部](私人与共享/影视剧%201234567890abcdef1234567890abcdef_all.csv)")]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"导出.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let ps = pages.as_array().unwrap();
+    assert_eq!(report["pages"], 4);
+    let parents: Vec<_> = ps.iter().filter(|p| p["database"].is_object()).collect();
+    assert_eq!(parents.len(), 1);
+    let parent = parents[0];
+    assert_eq!(parent["title"], "影视剧");
+    assert_eq!(
+        parent["database"]["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["名称", "是否观看", "类型", "描述"]
+    );
+    let children: Vec<_> = ps
+        .iter()
+        .filter(|p| p["parentId"] == parent["id"])
+        .collect();
+    assert_eq!(children.len(), 2);
+    assert!(children.iter().all(|p| p["title"] == "同名"));
+    assert_ne!(children[0]["id"], children[1]["id"]);
+    for row in parent["database"]["rows"].as_array().unwrap() {
+        let child = children.iter().find(|p| p["id"] == row["pageId"]).unwrap();
+        assert!(child["blocks"]
+            .to_string()
+            .contains(row["sourceValues"]["col2"].as_str().unwrap()));
+    }
+    let entry = ps.iter().find(|p| p["title"] == "入口").unwrap();
+    assert_eq!(
+        entry["blocks"]
+            .to_string()
+            .matches(&format!("page:{}", parent["id"].as_str().unwrap()))
+            .count(),
+        2
+    );
+}
+#[test]
+fn notion_parent_alias_ambiguity_is_reported_without_guessing() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "歧义目录");
+    let data = zip_files(&[
+        ("目录/页面 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.md", "# 甲"),
+        ("目录/页面 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.md", "# 乙"),
+        ("目录/页面/子.md", "# 子"),
+    ]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"目录.zip","data":base64::engine::general_purpose::STANDARD.encode(data)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let child = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["title"] == "子")
+        .unwrap();
+    assert!(child["parentId"].as_str().unwrap_or("").is_empty());
+    assert!(report["warnings"].to_string().contains("多个"));
+}
+#[test]
+#[ignore = "真实用户导出文件仅在本机显式验证，不提交样本"]
+fn actual_notion_export_has_one_root_and_sixty_three_children() {
+    use base64::Engine;
+    let path = std::env::var("QINGJIAN_TEST_NOTION_ZIP").expect("请设置真实导出文件路径");
+    let bytes = std::fs::read(path).unwrap();
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "真实导出隔离验证");
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"影视导出.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let ps = pages.as_array().unwrap();
+    assert_eq!(report["pages"], 64);
+    let roots: Vec<_> = ps
+        .iter()
+        .filter(|p| p["parentId"].as_str().unwrap_or("").is_empty())
+        .collect();
+    assert_eq!(roots.len(), 1);
+    let parent = roots[0];
+    assert_eq!(parent["title"], "影视剧");
+    assert_eq!(parent["database"]["rows"].as_array().unwrap().len(), 63);
+    assert_eq!(
+        ps.iter().filter(|p| p["parentId"] == parent["id"]).count(),
+        63
+    );
+    for r in parent["database"]["rows"].as_array().unwrap() {
+        assert!(ps
+            .iter()
+            .any(|p| p["id"] == r["pageId"] && p["parentId"] == parent["id"]));
+    }
+    assert_eq!(ps.iter().filter(|p| p["title"] == "少年歌行").count(), 2);
+}
+#[test]
+fn backup_remaps_database_row_page_links() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "关联页面备份");
+    let parent=s.dispatch("save",json!({"workspaceId":w,"page":{"title":"父数据库","database":{"columns":[{"id":"name","name":"名称","type":"text"}],"rows":[]}}})).unwrap();
+    let child = s
+        .dispatch(
+            "save",
+            json!({"workspaceId":w,"page":{"title":"子页面","parentId":parent["id"]}}),
+        )
+        .unwrap();
+    let mut parent = parent;
+    parent["database"]["rows"] =
+        json!([{"id":"r","values":{"name":"子页面"},"pageId":child["id"]}]);
+    s.dispatch("save", json!({"workspaceId":w,"page":parent}))
+        .unwrap();
+    let backup = s.dispatch("export", json!({"workspaceId":w})).unwrap();
+    let other = create(&mut s, "恢复");
+    s.dispatch(
+        "import",
+        json!({"workspaceId":other,"name":"备份.zip","data":backup["data"]}),
+    )
+    .unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":other})).unwrap();
+    let ps = pages.as_array().unwrap();
+    let parent = ps.iter().find(|p| p["database"].is_object()).unwrap();
+    let child = ps.iter().find(|p| p["title"] == "子页面").unwrap();
+    assert_eq!(parent["database"]["rows"][0]["pageId"], child["id"]);
+    assert_eq!(child["parentId"], parent["id"]);
+}
+#[test]
+fn different_csv_variants_are_not_merged_and_exact_parent_wins() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "非同源表格");
+    let data = zip_files(&[
+        (
+            "库 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv",
+            "名称,状态\n甲,进行中",
+        ),
+        (
+            "库 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_all.csv",
+            "名称,状态\n甲,已完成",
+        ),
+        ("库/子.md", "# 子"),
+        ("库.md", "# 确切父页面"),
+    ]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"表格.zip","data":base64::engine::general_purpose::STANDARD.encode(data)})).unwrap();
+    assert_eq!(report["pages"], 4);
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let ps = pages.as_array().unwrap();
+    let exact = ps.iter().find(|p| p["title"] == "确切父页面").unwrap();
+    let child = ps.iter().find(|p| p["title"] == "子").unwrap();
+    assert_eq!(child["parentId"], exact["id"]);
+}

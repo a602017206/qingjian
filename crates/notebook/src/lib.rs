@@ -3,6 +3,7 @@ mod git;
 pub use git::configure_network;
 mod import;
 mod markdown;
+mod notion;
 
 use base64::Engine;
 use chrono::Utc;

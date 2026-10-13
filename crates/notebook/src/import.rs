@@ -328,6 +328,11 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                 .map(|v| v["format"] == "qingjian" && v["version"] == 1)
                 .unwrap_or(false)
     });
+    let csv_pairs = if backup {
+        HashMap::new()
+    } else {
+        crate::notion::variants(&files)?
+    };
     let mut seen = HashSet::new();
     let mut page_ids = HashMap::new();
     let mut asset_ids = HashMap::new();
@@ -378,8 +383,19 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
             }
         }
     }
+    for (base, full) in &csv_pairs {
+        if let Some(id) = page_ids.get(full).cloned() {
+            page_ids.insert(base.clone(), id);
+            warnings.push(format!(
+                "展示表格与完整字段表格已核对为同一数据库，保留全部记录及字段：{base}"
+            ));
+        }
+    }
     let mut pages = vec![];
     for (n, b) in &files {
+        if csv_pairs.contains_key(n) {
+            continue;
+        }
         let Some(id) = page_ids.get(n) else { continue };
         let mut p = json!({"id":id,"title":clean_title(n),"icon":"📄","tags":[],"blocks":[],"favorite":false,"deleted":false,"wide":false,"locked":false,"createdAt":now(),"updatedAt":now(),"revision":1});
         if backup {
@@ -400,6 +416,18 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                     let old_target = text(column, "targetDatabaseId").to_owned();
                     if let Some(new_target) = original_ids.get(&old_target) {
                         column["targetDatabaseId"] = json!(new_target);
+                    }
+                }
+            }
+            if let Some(rows) = p
+                .get_mut("database")
+                .and_then(|db| db.get_mut("rows"))
+                .and_then(Value::as_array_mut)
+            {
+                for row in rows {
+                    let old = text(row, "pageId").to_owned();
+                    if let Some(new) = original_ids.get(&old) {
+                        row["pageId"] = json!(new);
                     }
                 }
             }
@@ -445,6 +473,7 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                 warnings.push(format!("表格 {n} 的状态、选项、日期与数值类型根据字段和内容推断；纯文本表格不提供原始颜色，已分配可调整颜色，原始值保留。"));
             }
             p["database"] = json!({"columns":columns,"rows":rows});
+            crate::notion::apply_view(&mut p["database"], n, &csv_pairs, &files)?;
             p["icon"] = json!("🗂️");
         } else {
             let mut body = std::str::from_utf8(b)
@@ -467,29 +496,19 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
         }
         if !backup {
             p["importSource"] = json!(n);
-            let mut parent = Path::new(n).parent();
-            'parents: while let Some(path) = parent {
-                if path.as_os_str().is_empty() {
-                    break;
-                };
-                for ext in ["md", "markdown", "html", "htm", "csv", "_all.csv"] {
-                    if let Some(id) = page_ids.get(&format!(
-                        "{}{}",
-                        path.to_string_lossy(),
-                        if ext.starts_with('_') {
-                            ext.to_owned()
-                        } else {
-                            format!(".{ext}")
-                        }
-                    )) {
-                        p["parentId"] = json!(id);
-                        break 'parents;
-                    }
-                }
-                parent = path.parent();
-            }
+            let sources: Vec<_> = csv_pairs
+                .iter()
+                .filter(|(_, full)| *full == n)
+                .map(|(base, _)| base.clone())
+                .chain(std::iter::once(n.clone()))
+                .collect();
+            p["importSources"] = json!(sources);
         }
         pages.push(p)
+    }
+    if !backup {
+        crate::notion::assign_parents(&mut pages, &page_ids, &mut warnings);
+        crate::notion::link_records(&mut pages, &files, &mut warnings);
     }
     crate::validate_hierarchy(&pages)?;
     if pages.is_empty() {
