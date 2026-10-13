@@ -18,7 +18,8 @@
     "test:e2e:database": "cargo build --locked -p notebook-core --bin server && node tests/e2e/database.mjs",
     "test:e2e:import-layout": "cargo build --locked -p notebook-core --bin server && node tests/e2e/import-layout.mjs",
     "test:e2e:trash": "cargo build --locked -p notebook-core --bin server && node tests/e2e/trash-cleanup.mjs",
-    "test:e2e:notion-hierarchy": "cargo build --locked -p notebook-core --bin server && node tests/e2e/notion-hierarchy.mjs"
+    "test:e2e:notion-hierarchy": "cargo build --locked -p notebook-core --bin server && node tests/e2e/notion-hierarchy.mjs",
+    "test:e2e:selection": "cargo build --locked -p notebook-core --bin server && node tests/e2e/selection-stability.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.0",
