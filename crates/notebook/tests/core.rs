@@ -471,3 +471,58 @@ fn malformed_advanced_property_configuration_is_rejected() {
         assert!(s.dispatch("save",json!({"workspaceId":w,"page":{"title":"配置","database":{"columns":[column],"rows":[]}}})).is_err());
     }
 }
+
+#[test]
+fn notion_csv_properties_and_database_children_are_preserved() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "影视导入");
+    let stem = "影视剧 1234567890abcdef1234567890abcdef";
+    let data = zip_files(&[
+        (&format!("{stem}_all.csv"), "电影名称,是否观看,观看时间,类型,地区,优先级,平台,备注\n牧神记,观看中,2025/10/15,动漫,中国🇨🇳,-1,bilibili,一段说明\n疾速追杀,未观看,,\"电影, 动漫\",美国🇺🇸,3,NAS,仍然是文字\n"),
+        (&format!("{stem}/牧神记 abcdef1234567890abcdef1234567890.md"), "# 牧神记\n\n正文不能丢失"),
+    ]);
+    let report = s.dispatch("import", json!({"workspaceId":w,"name":"影视.zip","data":base64::engine::general_purpose::STANDARD.encode(data)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let db = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["database"].is_object())
+        .unwrap();
+    assert_eq!(db["title"], "影视剧");
+    let cols = &db["database"]["columns"];
+    assert_eq!(cols[1]["type"], "status");
+    assert_eq!(cols[1]["options"], json!(["观看中", "未观看"]));
+    assert_eq!(cols[1]["optionColors"]["观看中"], "blue");
+    assert_eq!(cols[1]["optionColors"]["未观看"], "red");
+    assert_eq!(cols[2]["type"], "date");
+    assert_eq!(cols[3]["type"], "multiselect");
+    assert_eq!(cols[4]["type"], "select");
+    assert_eq!(cols[5]["type"], "number");
+    assert_eq!(cols[6]["type"], "select");
+    assert_eq!(cols[7]["type"], "text");
+    assert_eq!(db["database"]["rows"][0]["values"]["col2"], "2025-10-15");
+    assert_eq!(
+        db["database"]["rows"][1]["values"]["col3"],
+        "[\"电影\",\"动漫\"]"
+    );
+    assert_eq!(
+        db["database"]["rows"][1]["sourceValues"]["col3"],
+        "电影, 动漫"
+    );
+    let child = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["title"] == "牧神记")
+        .unwrap();
+    assert_eq!(child["parentId"], db["id"]);
+    assert_eq!(child["blocks"][0]["text"], "正文不能丢失");
+    assert!(report["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v.as_str().unwrap().contains("推断")));
+}

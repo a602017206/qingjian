@@ -19,7 +19,7 @@ fn extension(name: &str) -> String {
         .to_lowercase()
 }
 fn clean_title(name: &str) -> String {
-    Regex::new(r"(?i)\s+[0-9a-f]{32}$")
+    Regex::new(r"(?i)\s+[0-9a-f]{32}(?:_all)?$")
         .unwrap()
         .replace(
             &Path::new(name)
@@ -29,6 +29,123 @@ fn clean_title(name: &str) -> String {
             "",
         )
         .into_owned()
+}
+fn option_color(value: &str, status: bool) -> &'static str {
+    if status {
+        if ["未观看", "未开始", "待开始", "待办", "未完成"].contains(&value) {
+            return "red";
+        }
+        if ["观看中", "进行中", "处理中", "阅读中"].contains(&value) {
+            return "blue";
+        }
+        if ["已观看", "已完成", "完成", "已读"].contains(&value) {
+            return "green";
+        }
+        if ["弃剧", "取消", "已取消", "暂停"].contains(&value) {
+            return "gray";
+        }
+    }
+    let colors = [
+        "green", "purple", "yellow", "red", "blue", "brown", "pink", "orange",
+    ];
+    let hash = value
+        .chars()
+        .fold(0u32, |n, c| n.wrapping_mul(31).wrapping_add(c as u32));
+    colors[hash as usize % colors.len()]
+}
+fn infer_csv_columns(columns: &mut [Value], rows: &mut [Value]) -> bool {
+    let mut changed = false;
+    for (i, column) in columns.iter_mut().enumerate() {
+        if i == 0 {
+            continue;
+        }
+        let id = text(column, "id").to_owned();
+        let name = text(column, "name").to_owned();
+        let values: Vec<String> = rows
+            .iter()
+            .map(|r| text(&r["values"], &id).to_owned())
+            .filter(|v| !v.trim().is_empty())
+            .collect();
+        let status = name.contains("状态")
+            || ["是否观看", "观看状态", "阅读进度", "任务进度", "完成情况"]
+                .contains(&name.as_str());
+        let categorical = ["类型", "分类", "类别", "地区", "平台", "标签"].contains(&name.as_str());
+        let date = name.contains("日期")
+            || ["观看时间", "阅读时间", "完成时间", "开始时间", "截止时间"]
+                .contains(&name.as_str());
+        let numeric = ["优先级", "评分", "数量", "单价", "金额", "工时"].contains(&name.as_str());
+        let kind = if status {
+            "status"
+        } else if categorical {
+            if values.iter().any(|v| v.contains([',', '，'])) {
+                "multiselect"
+            } else {
+                "select"
+            }
+        } else if date
+            && values.iter().all(|v| {
+                chrono::NaiveDate::parse_from_str(&v.replace('/', "-"), "%Y-%m-%d").is_ok()
+            })
+        {
+            "date"
+        } else if numeric
+            && values
+                .iter()
+                .all(|v| v.parse::<f64>().map(f64::is_finite).unwrap_or(false))
+        {
+            "number"
+        } else {
+            "text"
+        };
+        column["type"] = json!(kind);
+        if kind == "text" {
+            continue;
+        }
+        changed = true;
+        if ["select", "status", "multiselect"].contains(&kind) {
+            let mut options = vec![];
+            for value in &values {
+                let parts: Vec<&str> = if kind == "multiselect" {
+                    value
+                        .split([',', '，'])
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())
+                        .collect()
+                } else {
+                    vec![value.as_str()]
+                };
+                for part in parts {
+                    if !options.iter().any(|v| v == part) {
+                        options.push(part.to_owned());
+                    }
+                }
+            }
+            let colors: serde_json::Map<String, Value> = options
+                .iter()
+                .map(|v| (v.clone(), json!(option_color(v, status))))
+                .collect();
+            column["options"] = json!(options);
+            column["optionColors"] = json!(colors);
+        }
+        for row in rows.iter_mut() {
+            let value = text(&row["values"], &id).to_owned();
+            if kind == "multiselect" {
+                let selected: Vec<_> = value
+                    .split([',', '，'])
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .collect();
+                row["values"][&id] = json!(serde_json::to_string(&selected).unwrap());
+            } else if kind == "date" && !value.is_empty() {
+                if let Ok(date) =
+                    chrono::NaiveDate::parse_from_str(&value.replace('/', "-"), "%Y-%m-%d")
+                {
+                    row["values"][&id] = json!(date.format("%Y-%m-%d").to_string());
+                }
+            }
+        }
+    }
+    changed
 }
 pub fn asset_name(name: &str, data: &[u8]) -> String {
     let hash = Sha256::digest(data);
@@ -309,7 +426,11 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                 .headers()
                 .map_err(|e| format!("表格 {n} 无法读取：{e}"))?
                 .clone();
-            let columns:Vec<_>=headers.iter().enumerate().map(|(i,h)|json!({"id":format!("col{i}"),"name":h,"type":if h.contains("状态"){"select"}else if h.contains("日期"){"date"}else{"text"}})).collect();
+            let mut columns: Vec<_> = headers
+                .iter()
+                .enumerate()
+                .map(|(i, h)| json!({"id":format!("col{i}"),"name":h,"type":"text"}))
+                .collect();
             let mut rows = vec![];
             for record in reader.records() {
                 let record = record.map_err(|e| format!("表格 {n} 无法读取：{e}"))?;
@@ -318,7 +439,10 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                     .enumerate()
                     .map(|(i, v)| (format!("col{i}"), json!(v)))
                     .collect::<serde_json::Map<_, _>>();
-                rows.push(json!({"id":uid(),"values":values}));
+                rows.push(json!({"id":uid(),"sourceValues":values.clone(),"values":values}));
+            }
+            if infer_csv_columns(&mut columns, &mut rows) {
+                warnings.push(format!("表格 {n} 的状态、选项、日期与数值类型根据字段和内容推断；纯文本表格不提供原始颜色，已分配可调整颜色，原始值保留。"));
             }
             p["database"] = json!({"columns":columns,"rows":rows});
             p["icon"] = json!("🗂️");
@@ -342,13 +466,22 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
             p["blocks"] = json!(blocks)
         }
         if !backup {
+            p["importSource"] = json!(n);
             let mut parent = Path::new(n).parent();
             'parents: while let Some(path) = parent {
                 if path.as_os_str().is_empty() {
                     break;
                 };
-                for ext in ["md", "markdown", "html", "htm"] {
-                    if let Some(id) = page_ids.get(&format!("{}.{}", path.to_string_lossy(), ext)) {
+                for ext in ["md", "markdown", "html", "htm", "csv", "_all.csv"] {
+                    if let Some(id) = page_ids.get(&format!(
+                        "{}{}",
+                        path.to_string_lossy(),
+                        if ext.starts_with('_') {
+                            ext.to_owned()
+                        } else {
+                            format!(".{ext}")
+                        }
+                    )) {
                         p["parentId"] = json!(id);
                         break 'parents;
                     }

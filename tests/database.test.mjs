@@ -66,3 +66,15 @@ test('再次选择表格类型及文本转表格保留原有内容',async()=>{
 test('日历将不存在的日期识别为无效，记录不会被藏在某个月份',async()=>{
  const {isCalendarDate}=await import('../ui/web/database.mjs');assert.equal(isCalendarDate('2026-02-31'),false);assert.equal(isCalendarDate('2024-02-29'),true);assert.equal(isCalendarDate('2026-10-13'),true);
 });
+
+test('状态与单选使用可配置颜色，状态有圆点且可选择',()=>{
+ const p={id:'shows',database:{columns:[{id:'name',name:'名称',type:'text'},{id:'status',name:'是否观看',type:'status',options:['观看中','未观看'],optionColors:{'观看中':'blue','未观看':'red'}},{id:'platform',name:'平台',type:'select',options:['优酷'],optionColors:{'优酷':'purple'}}],rows:[{id:'r',values:{name:'牧神记',status:'观看中',platform:'优酷'}}]}};
+ const html=renderDatabase(p,[p],{view:'table',query:''});assert.match(html,/option-blue/);assert.match(html,/status-dot/);assert.match(html,/option-purple/);assert.match(html,/<select[^>]*aria-label="是否观看"/);
+ const gallery=renderDatabase(p,[p],{view:'gallery',query:''});assert.match(gallery,/option-blue/);assert.match(gallery,/option-purple/);
+});
+
+test('页面菜单包含编辑收藏复制移动与回收站，并按收藏和锁定状态变化',async()=>{
+ const m=await import('../ui/web/page-menu.mjs').catch(()=>({}));assert.equal(typeof m.pageMenuItems,'function','页面快捷菜单尚未实现');
+ const items=m.pageMenuItems({id:'p',title:'影视剧',favorite:false});assert.deepEqual(items.map(i=>i.action),['pageMenuOpen','pageMenuRename','pageMenuFavorite','pageMenuDuplicate','pageMenuMove','pageMenuTrash']);
+ assert.match(items.find(i=>i.action==='pageMenuFavorite').label,/收藏/);assert.equal(m.pageMenuItems({favorite:true,locked:true}).find(i=>i.action==='pageMenuRename').disabled,true);assert.match(m.pageMenuItems({favorite:true}).find(i=>i.action==='pageMenuFavorite').label,/取消/);
+});
