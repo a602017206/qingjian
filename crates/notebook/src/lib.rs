@@ -5,6 +5,7 @@ mod html_import;
 mod import;
 mod markdown;
 mod notion;
+mod property;
 
 use base64::Engine;
 use chrono::Utc;
@@ -138,6 +139,7 @@ pub(crate) fn validate_page(page: &Value) -> Result<()> {
                 }
             }
         }
+        crate::property::validate_database(db)?;
         let mut row_ids = HashSet::new();
         for row in rows {
             if !row_ids.insert(text(row, "id")) {
@@ -306,7 +308,9 @@ impl Store {
             parent = text(ancestor, "parentId")
         }
         p["id"] = json!(id);
-        p["updatedAt"] = json!(now());
+        let updated = now();
+        p["updatedAt"] = json!(updated);
+        crate::property::stamp(&mut p, old, true, &updated)?;
         if text(&p, "title").trim().is_empty() {
             p["title"] = json!("未命名页面")
         };
@@ -434,7 +438,9 @@ impl Store {
         for mut p in pages {
             if ids.contains(text(&p, "id")) {
                 p["deleted"] = json!(deleted);
-                p["updatedAt"] = json!(now());
+                let updated = now();
+                p["updatedAt"] = json!(updated);
+                p["updatedBy"] = json!("本机用户");
                 p["revision"] = json!(p["revision"].as_u64().unwrap_or(0) + 1);
                 write_json(
                     &dir.join("pages").join(format!("{}.json", text(&p, "id"))),

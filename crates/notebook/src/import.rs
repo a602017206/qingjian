@@ -448,8 +448,7 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
             p["id"] = json!(id);
             p["parentId"] = json!(original_ids.get(&old_parent).cloned().unwrap_or_default());
             p["revision"] = json!(1);
-            p["createdAt"] = json!(now());
-            p["updatedAt"] = json!(now());
+
             p["deleted"] = json!(false);
             if let Some(columns) = p
                 .get_mut("database")
@@ -489,6 +488,7 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                     block["text"] = json!(body)
                 }
             }
+            remap_file_properties(&mut p, &asset_ids);
         } else if let Some(html) = html_pages.get(n) {
             p["title"] = json!(html.title);
             p["importNotionId"] = json!(html.source_id);
@@ -551,9 +551,17 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
         pages.push(p)
     }
     if !backup {
+        for page in &mut pages {
+            crate::html_import::resolve_media(page, &asset_ids, &mut warnings);
+            crate::html_import::apply_original_metadata(page);
+        }
         crate::notion::assign_parents(&mut pages, &page_ids, &mut warnings);
         crate::html_import::finish(&mut pages, &page_ids, &mut warnings);
         crate::notion::link_records(&mut pages, &files, &mut warnings);
+    }
+    for page in &mut pages {
+        crate::property::stamp(page, None, false, &now())?;
+        crate::validate_page(page)?;
     }
     crate::validate_hierarchy(&pages)?;
     if pages.is_empty() {
@@ -740,4 +748,56 @@ pub fn export(dir: &Path) -> Result<Value> {
     Ok(
         json!({"name":"轻笺笔记备份.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)}),
     )
+}
+
+fn remap_file_properties(page: &mut Value, assets: &HashMap<String, String>) {
+    fn remap(raw: &str, assets: &HashMap<String, String>) -> String {
+        let Ok(mut files) = serde_json::from_str::<Vec<Value>>(raw) else {
+            return raw.to_owned();
+        };
+        for file in &mut files {
+            let Some(old) = text(file, "asset").strip_prefix("asset:") else {
+                continue;
+            };
+            if let Some(new) = assets.get(&format!("assets/{old}")) {
+                file["asset"] = json!(format!("asset:{new}"));
+            }
+        }
+        serde_json::to_string(&files).unwrap()
+    }
+    let file_ids: Vec<_> = page["database"]["columns"]
+        .as_array()
+        .map(|columns| {
+            columns
+                .iter()
+                .filter(|c| text(c, "type") == "files")
+                .map(|c| text(c, "id").to_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(rows) = page
+        .get_mut("database")
+        .and_then(|db| db.get_mut("rows"))
+        .and_then(Value::as_array_mut)
+    {
+        for row in rows {
+            for id in &file_ids {
+                if let Some(raw) = row["values"].get(id).and_then(Value::as_str) {
+                    row["values"][id] = json!(remap(raw, assets));
+                }
+            }
+        }
+    }
+    if let Some(properties) = page
+        .get_mut("importProperties")
+        .and_then(Value::as_array_mut)
+    {
+        for property in properties {
+            if text(property, "type") == "files" {
+                if let Some(raw) = property.get("value").and_then(Value::as_str) {
+                    property["value"] = json!(remap(raw, assets));
+                }
+            }
+        }
+    }
 }

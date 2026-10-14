@@ -1133,3 +1133,301 @@ fn html_identical_visible_records_do_not_guess_hidden_csv_fields() {
     assert_eq!(report["pages"], 2);
     assert!(report["warnings"].to_string().contains("分别保留"));
 }
+
+#[test]
+fn database_metadata_and_monotonic_sequence_survive_layout_and_tampering() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "记录元数据");
+    let mut page = s.dispatch("save", json!({"workspaceId":w,"page":{"title":"数据库","database":{"columns":[{"id":"name","name":"名称","type":"text"}],"rows":[{"id":"first","values":{"name":"原值"}},{"id":"second","values":{"name":"另一个"}}]}}})).unwrap();
+    assert_eq!(page["createdBy"], "本机用户");
+    assert_eq!(page["database"]["rows"][0]["sequence"], 1);
+    assert_eq!(page["database"]["rows"][1]["sequence"], 2);
+    assert_eq!(page["database"]["nextSequence"], 3);
+    let metadata = page["database"]["rows"][0].clone();
+    page["database"]["columns"][0]["name"] = json!("新名称");
+    page["database"]["rows"][0]["createdBy"] = json!("伪造作者");
+    page["database"]["rows"][0]["sequence"] = json!(90);
+    page["database"]["nextSequence"] = json!(1);
+    page = s
+        .dispatch("save", json!({"workspaceId":w,"page":page}))
+        .unwrap();
+    assert_eq!(
+        page["database"]["rows"][0]["createdBy"],
+        metadata["createdBy"]
+    );
+    assert_eq!(page["database"]["rows"][0]["sequence"], 1);
+    assert_eq!(
+        page["database"]["rows"][0]["updatedAt"],
+        metadata["updatedAt"]
+    );
+    page["database"]["rows"].as_array_mut().unwrap().remove(1);
+    page = s
+        .dispatch("save", json!({"workspaceId":w,"page":page}))
+        .unwrap();
+    page["database"]["rows"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"third","values":{"name":"新增"}}));
+    page = s
+        .dispatch("save", json!({"workspaceId":w,"page":page}))
+        .unwrap();
+    assert_eq!(page["database"]["rows"][1]["sequence"], 3);
+    assert_eq!(page["database"]["nextSequence"], 4);
+    page["database"]["rows"][0]["values"]["name"] = json!("修改值");
+    page = s
+        .dispatch("save", json!({"workspaceId":w,"page":page}))
+        .unwrap();
+    assert_ne!(
+        page["database"]["rows"][0]["updatedAt"],
+        metadata["updatedAt"]
+    );
+    assert_eq!(page["database"]["rows"][0]["updatedBy"], "本机用户");
+}
+
+#[test]
+fn typed_property_validation_prevents_broken_media_location_and_buttons() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "属性校验");
+    for (kind, value) in [
+        ("person", "[1]"),
+        ("files", r#"[{"name":"图","asset":"asset:../../escape"}]"#),
+        ("location", r#"{"address":"北京","latitude":100}"#),
+    ] {
+        let result = s.dispatch("save", json!({"workspaceId":w,"page":{"database":{"columns":[{"id":"name","name":"名称","type":kind}],"rows":[{"id":"row","values":{"name":value}}]}}}));
+        assert!(result.is_err(), "{kind}");
+    }
+    let result = s.dispatch("save", json!({"workspaceId":w,"page":{"database":{"columns":[{"id":"name","name":"名称","type":"text"},{"id":"button","name":"操作","type":"button","buttonAction":{"kind":"script","propertyId":"name","value":"bad"}}],"rows":[]}}}));
+    assert!(result.is_err());
+    let valid = s.dispatch("save", json!({"workspaceId":w,"page":{"database":{"columns":[{"id":"title","name":"名称","type":"text"},{"id":"name","name":"人员","type":"person"},{"id":"files","name":"媒体","type":"files"},{"id":"location","name":"位置","type":"location"},{"id":"button","name":"操作","type":"button","buttonAction":{"kind":"set","propertyId":"name","value":"[]"},"buttonLabel":"设为空"},{"id":"uid","name":"编号","type":"uniqueId","uniqueIdPrefix":"记录"}],"rows":[{"id":"row","values":{"name":"[\"张三\"]","files":"[{\"name\":\"图\",\"asset\":\"asset:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png\"}]","location":"{\"address\":\"北京\",\"latitude\":39.9,\"longitude\":116.4}"}}]}}}));
+    assert!(valid.is_ok(), "{valid:?}");
+}
+
+#[test]
+fn notion_html_explicit_new_property_types_and_original_authors_are_preserved() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "新类型导入");
+    let data = zip_files(&[
+        (
+            "库 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html",
+            r#"<article class="page" id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"><h1 class="page-title">库</h1><div class="page-body"><table class="collection-content"><thead><tr><th>名称</th><th>人员</th><th>媒体</th><th>创建时间</th><th>创建者</th><th>邮箱</th><th>电话</th></tr></thead><tbody><tr id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><td><a href="库/子 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html">子</a></td><td>甲</td><td>海报</td><td>2024-01-02</td><td>原作者</td><td>a@example.com</td><td>123</td></tr></tbody></table></div></article>"#,
+        ),
+        (
+            "库/子 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html",
+            r#"<article class="page" id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><h1 class="page-title">子</h1><table class="properties"><tr class="property-row-person"><th>人员</th><td><span class="user">甲</span></td></tr><tr class="property-row-files"><th>媒体</th><td><a href="海报.png">海报</a></td></tr><tr class="property-row-created_time"><th>创建时间</th><td><time datetime="2024-01-02">2024-01-02</time></td></tr><tr class="property-row-created_by"><th>创建者</th><td>原作者</td></tr><tr class="property-row-email"><th>邮箱</th><td>a@example.com</td></tr><tr class="property-row-phone_number"><th>电话</th><td>123</td></tr></table><div class="page-body"></div></article>"#,
+        ),
+        ("库/海报.png", "image"),
+    ]);
+    s.dispatch("import", json!({"workspaceId":w,"name":"html.zip","data":base64::engine::general_purpose::STANDARD.encode(data)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let parent = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["title"] == "库")
+        .unwrap();
+    let cols = parent["database"]["columns"].as_array().unwrap();
+    assert_eq!(cols[1]["type"], "person");
+    assert_eq!(cols[2]["type"], "files");
+    assert_eq!(cols[3]["type"], "createdTime");
+    assert_eq!(cols[4]["type"], "createdBy");
+    assert_eq!(cols[5]["type"], "email");
+    assert_eq!(cols[6]["type"], "phone");
+    let row = &parent["database"]["rows"][0];
+    assert_eq!(row["createdAt"], "2024-01-02");
+    assert_eq!(row["createdBy"], "原作者");
+    assert!(row["values"]["col2"].as_str().unwrap().contains("asset:"));
+    let child = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["title"] == "子")
+        .unwrap();
+    assert_eq!(child["createdBy"], "原作者");
+}
+
+#[test]
+fn legacy_imported_metadata_is_initialized_without_layout_time_changes() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "旧数据升级");
+    let backup = zip_files(&[
+        ("manifest.json", r#"{"format":"qingjian","version":1}"#),
+        (
+            "pages/old.json",
+            r#"{"id":"old","title":"旧数据","blocks":[],"createdAt":"2020-01-01","updatedAt":"2020-02-01","createdBy":"父页作者","database":{"columns":[{"id":"name","name":"名称","type":"text"},{"id":"creator","name":"创建者","type":"createdBy"}],"rows":[{"id":"row","values":{"name":"原值","creator":"记录作者"}}]}}"#,
+        ),
+    ]);
+    s.dispatch("import", json!({"workspaceId":w,"name":"backup.zip","data":base64::engine::general_purpose::STANDARD.encode(backup)})).unwrap();
+    let mut page = s.dispatch("pages", json!({"workspaceId":w})).unwrap()[0].clone();
+    assert_eq!(page["createdAt"], "2020-01-01");
+    assert_eq!(page["database"]["rows"][0]["createdBy"], "记录作者");
+    assert_eq!(page["database"]["rows"][0]["updatedBy"], "");
+    let before = page["database"]["rows"][0].clone();
+    page["database"]["columns"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"empty","name":"新属性","type":"text"}));
+    page["database"]["rows"][0]["values"]["empty"] = json!("");
+    page = s
+        .dispatch("save", json!({"workspaceId":w,"page":page}))
+        .unwrap();
+    assert_eq!(
+        page["database"]["rows"][0]["updatedAt"],
+        before["updatedAt"]
+    );
+    assert_eq!(page["database"]["rows"][0]["updatedBy"], "");
+}
+
+#[test]
+fn local_new_rows_do_not_claim_imported_system_field_authors() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "本机创建");
+    let p = s.dispatch("save", json!({"workspaceId":w,"page":{"createdBy":"伪造页面作者","database":{"columns":[{"id":"author","name":"创建者","type":"createdBy"}],"rows":[{"id":"row","values":{"author":"伪造记录作者"}}]}}})).unwrap();
+    assert_eq!(p["createdBy"], "本机用户");
+    assert_eq!(p["database"]["rows"][0]["createdBy"], "本机用户");
+}
+
+#[test]
+fn new_properties_backup_keeps_media_bytes_metadata_and_unused_sequence() {
+    use base64::Engine;
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = Store::new(dir.path()).unwrap();
+    let a = create(&mut s, "属性备份源");
+    let asset = s.dispatch("attach", json!({"workspaceId":a,"name":"海报.png","data":base64::engine::general_purpose::STANDARD.encode("media bytes")})).unwrap();
+    let file_value = serde_json::to_string(
+        &json!([{"name":"海报","asset":format!("asset:{}",asset["name"].as_str().unwrap())}]),
+    )
+    .unwrap();
+    let mut page = s.dispatch("save", json!({"workspaceId":a,"page":{"title":"完整属性","database":{"columns":[{"id":"files","name":"媒体","type":"files"},{"id":"name","name":"人员","type":"person"}],"rows":[{"id":"kept","values":{"files":file_value,"name":"[\"甲\",\"乙\"]"}},{"id":"removed","values":{}}]}}})).unwrap();
+    page["database"]["rows"].as_array_mut().unwrap().remove(1);
+    page = s
+        .dispatch("save", json!({"workspaceId":a,"page":page}))
+        .unwrap();
+    let backup = s.dispatch("export", json!({"workspaceId":a})).unwrap();
+    let b = create(&mut s, "属性备份目标");
+    s.dispatch(
+        "import",
+        json!({"workspaceId":b,"name":backup["name"],"data":backup["data"]}),
+    )
+    .unwrap();
+    let mut restored = s.dispatch("pages", json!({"workspaceId":b})).unwrap()[0].clone();
+    assert_eq!(restored["database"]["rows"][0], page["database"]["rows"][0]);
+    assert_eq!(restored["createdAt"], page["createdAt"]);
+    assert_eq!(restored["database"]["nextSequence"], 3);
+    let result = s
+        .dispatch("asset", json!({"workspaceId":b,"name":asset["name"]}))
+        .unwrap();
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(result["data"].as_str().unwrap())
+            .unwrap(),
+        b"media bytes"
+    );
+    restored["database"]["rows"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id":"new","values":{}}));
+    restored = s
+        .dispatch("save", json!({"workspaceId":b,"page":restored}))
+        .unwrap();
+    assert_eq!(restored["database"]["rows"][1]["sequence"], 3);
+}
+
+#[test]
+fn database_row_body_updates_edit_metadata_but_column_layout_does_not() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "记录正文元数据");
+    let mut page = s.dispatch("save", json!({"workspaceId":w,"page":{"database":{"columns":[{"id":"name","name":"名称","type":"text"}],"rows":[{"id":"row","values":{"name":"记录"},"body":"原正文"}]}}})).unwrap();
+    let created = page["database"]["rows"][0].clone();
+    page["database"]["rows"][0]["body"] = json!("修改正文");
+    page = s
+        .dispatch("save", json!({"workspaceId":w,"page":page}))
+        .unwrap();
+    assert_ne!(
+        page["database"]["rows"][0]["updatedAt"],
+        created["updatedAt"]
+    );
+    assert_eq!(
+        page["database"]["rows"][0]["createdAt"],
+        created["createdAt"]
+    );
+    assert_eq!(page["database"]["rows"][0]["updatedBy"], "本机用户");
+}
+
+#[test]
+fn property_configuration_rejects_partial_coordinates() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "完整属性校验");
+    for value in [
+        r#"{"address":"北京","latitude":39.9}"#,
+        r#"{"address":"北京","longitude":116.4}"#,
+    ] {
+        assert!(s.dispatch("save", json!({"workspaceId":w,"page":{"database":{"columns":[{"id":"name","name":"名称","type":"text"},{"id":"loc","name":"地点","type":"location"}],"rows":[{"id":"row","values":{"loc":value}}]}}})).is_err());
+    }
+}
+
+#[test]
+fn property_configuration_rejects_unsupported_button_targets() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "按钮目标校验");
+    for (kind, target) in [
+        ("files", "target"),
+        ("location", "target"),
+        ("unknown", "target"),
+        ("text", "name"),
+        ("button", "button"),
+    ] {
+        let result=s.dispatch("save", json!({"workspaceId":w,"page":{"database":{"columns":[{"id":"name","name":"名称","type":"text"},{"id":"target","name":"目标","type":kind},{"id":"button","name":"按钮","type":"button","buttonAction":{"kind":"set","propertyId":target,"value":""}}],"rows":[]}}}));
+        assert!(result.is_err(), "{kind} {target}");
+    }
+}
+
+#[test]
+fn backup_remaps_file_properties_with_legacy_asset_names() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "附件字段重映射");
+    let backup = zip_files(&[
+        ("manifest.json", r#"{"format":"qingjian","version":1}"#),
+        (
+            "pages/parent.json",
+            r#"{"id":"parent","title":"媒体","blocks":[],"database":{"columns":[{"id":"name","name":"名称","type":"text"},{"id":"files","name":"媒体","type":"files"}],"rows":[{"id":"row","values":{"name":"原图","files":"[{\"name\":\"原图\",\"asset\":\"asset:photo.png\",\"caption\":\"保留说明\"}]"}}]},"importProperties":[{"name":"媒体","type":"files","value":"[{\"name\":\"原图\",\"asset\":\"asset:photo.png\"}]"}]}"#,
+        ),
+        ("assets/photo.png", "original media bytes"),
+    ]);
+    s.dispatch("import", json!({"workspaceId":w,"name":"backup.zip","data":base64::engine::general_purpose::STANDARD.encode(backup)})).unwrap();
+    let page = s.dispatch("pages", json!({"workspaceId":w})).unwrap()[0].clone();
+    let files: serde_json::Value = serde_json::from_str(
+        page["database"]["rows"][0]["values"]["files"]
+            .as_str()
+            .unwrap(),
+    )
+    .unwrap();
+    let prop_files: serde_json::Value =
+        serde_json::from_str(page["importProperties"][0]["value"].as_str().unwrap()).unwrap();
+    let reference = files[0]["asset"].as_str().unwrap();
+    assert_ne!(reference, "asset:photo.png");
+    let name = reference.strip_prefix("asset:").unwrap();
+    assert!(name.ends_with(".png"));
+    assert_eq!(files[0]["caption"], "保留说明");
+    assert_eq!(prop_files[0]["asset"], files[0]["asset"]);
+    let asset = s
+        .dispatch("asset", json!({"workspaceId":w,"name":name}))
+        .unwrap();
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(asset["data"].as_str().unwrap())
+            .unwrap(),
+        b"original media bytes"
+    );
+}

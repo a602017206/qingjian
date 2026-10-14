@@ -22,7 +22,8 @@
     "test:e2e:selection": "cargo build --locked -p notebook-core --bin server && node tests/e2e/selection-stability.mjs",
     "test:e2e:notion-html": "cargo build --locked -p notebook-core --bin server && node tests/e2e/notion-html.mjs",
     "test:e2e:record-page": "cargo build --locked -p notebook-core --bin server && node tests/e2e/record-page.mjs",
-    "test:e2e:property-menu": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-menu.mjs && node tests/e2e/property-context.mjs"
+    "test:e2e:property-menu": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-menu.mjs && node tests/e2e/property-context.mjs",
+    "test:e2e:property-types": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-types.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.0",

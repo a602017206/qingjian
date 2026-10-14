@@ -1,5 +1,6 @@
 import { clone,escapeHTML as e } from './core.mjs';
 import { renderCell } from './database-ui.mjs';
+import { propertyTypeIcon,systemPropertyTypes } from './property-types.mjs';
 import { icon } from './icons.mjs';
 import { t } from './i18n.mjs';
 import { computeCell,readSelection } from './database.mjs';
@@ -15,7 +16,7 @@ export function recordValueDraft(page,pages,rowId,columnId,value){
  const linked=linkedRecord(page,pages);
  if(!linked||linked.row.id!==rowId||page.locked||linked.owner.locked||page.deleted)throw new Error(t('cannotModify'));
  const column=linked.owner.database.columns.find(c=>c.id===columnId);
- if(!column||column.id===linked.owner.database.columns[0]?.id||['formula','rollup'].includes(column.type))throw new Error(t('cannotModify'));
+ if(!column||column.id===linked.owner.database.columns[0]?.id||['formula','rollup','button',...systemPropertyTypes].includes(column.type))throw new Error(t('cannotModify'));
  const owner=clone(linked.owner);owner.database.rows.find(r=>r.id===rowId).values[columnId]=value;return owner;
 }
 export function recordSchemaDraft(page,pages,mutate){
@@ -60,16 +61,13 @@ export function visibleRecordBlocks(page,linked){
  if(!required.length||required.some(name=>!names.has(name)))return blocks;
  return blocks.slice(1);
 }
-function propertyGlyph(type){
- if(type==='number')return '<span class="property-number-icon" aria-hidden="true">#</span>';
- return icon(({date:'clock',status:'sun',select:'down',multiselect:'list',checkbox:'check',relation:'attach',url:'attach',formula:'git',rollup:'git'})[type]||'page',16);
-}
+const propertyGlyph=propertyTypeIcon;
 export function renderRecordProperties(page,pages,disabled=false){
  const linked=linkedRecord(page,pages);if(!linked)return '';
  const {owner,row}=linked,locked=disabled||page.locked||owner.locked;
  const columns=recordPropertyColumns(page,owner).filter(column=>{
   const visibility=owner.database.propertyLayout?.visibility?.[column.id];if(visibility==='hidden')return false;
-  if(visibility==='nonempty'){if(['formula','rollup'].includes(column.type)){const result=computeCell(owner,row,column.id,pages);return result.error||!(result.value==null||result.value===''||(Array.isArray(result.value)&&!result.value.length));}const raw=row.values[column.id];if(['multiselect','relation'].includes(column.type)){try{return readSelection(raw).length>0;}catch{return true;}}return raw!=null&&raw!=='';}
+  if(visibility==='nonempty'){if(['formula','rollup','person','files','location',...systemPropertyTypes].includes(column.type)){const result=computeCell(owner,row,column.id,pages);if(column.type==='location'&&!result.error)return Boolean(result.value.address||result.value.latitude!==undefined);return result.error||!(result.value==null||result.value===''||(Array.isArray(result.value)&&!result.value.length));}const raw=row.values[column.id];if(['multiselect','relation'].includes(column.type)){try{return readSelection(raw).length>0;}catch{return true;}}return raw!=null&&raw!=='';}
   return true;
  });
  return `<section class="record-page-properties" aria-label="${t('recordProperties')}">${columns.map(column=>{

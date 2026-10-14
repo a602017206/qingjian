@@ -111,6 +111,18 @@ fn class_type(row: ElementRef<'_>) -> &'static str {
         "date" => "date",
         "number" => "number",
         "checkbox" => "checkbox",
+        "person" | "people" => "person",
+        "files" | "file" => "files",
+        "email" => "email",
+        "phone" | "phone_number" => "phone",
+        "url" => "url",
+        "created_time" => "createdTime",
+        "created_by" => "createdBy",
+        "last_edited_time" => "editedTime",
+        "last_edited_by" => "editedBy",
+        "unique_id" => "uniqueId",
+        "button" => "button",
+        "location" => "location",
         _ => "text",
     }
 }
@@ -138,7 +150,34 @@ fn cell(cell: ElementRef<'_>, kind: &str) -> Value {
             serde_json::to_string(&options.iter().map(|(v, _)| v.clone()).collect::<Vec<_>>())
                 .unwrap()
         }
-        "date" if times.len() == 1 => times[0].to_owned(),
+        "date" | "createdTime" | "editedTime" if times.len() == 1 => times[0].to_owned(),
+        "person" => normalized(&raw, "person"),
+        "files" => {
+            let files: Vec<_> = cell
+                .select(&sel("a[href], img[src]"))
+                .filter_map(|e| {
+                    let target = e.value().attr("href").or_else(|| e.value().attr("src"))?;
+                    let label = plain(e);
+                    let name = if label.is_empty() {
+                        e.value()
+                            .attr("alt")
+                            .filter(|v| !v.is_empty())
+                            .unwrap_or(target)
+                    } else {
+                        &label
+                    };
+                    Some(
+                        if target.starts_with("http://") || target.starts_with("https://") {
+                            json!({"name":name,"url":target})
+                        } else {
+                            json!({"name":name,"sourcePath":target})
+                        },
+                    )
+                })
+                .collect();
+            serde_json::to_string(&files).unwrap()
+        }
+        "location" => serde_json::to_string(&json!({"address":raw})).unwrap(),
         "checkbox" => cell
             .select(&sel("input[type=checkbox]"))
             .next()
@@ -333,7 +372,7 @@ pub(crate) fn parse(input: &str) -> Option<Page> {
 }
 fn normalized(value: &str, kind: &str) -> String {
     match kind {
-        "multiselect" => {
+        "multiselect" | "person" => {
             let values = serde_json::from_str::<Vec<String>>(value).unwrap_or_else(|_| {
                 value
                     .split([',', '，'])
@@ -344,11 +383,27 @@ fn normalized(value: &str, kind: &str) -> String {
             });
             serde_json::to_string(&values).unwrap()
         }
-        "date" => {
+        "date" | "createdTime" | "editedTime" => {
             let s = value.trim().replace('/', "-");
             chrono::NaiveDate::parse_from_str(&s, "%Y-%m-%d")
                 .map(|d| d.to_string())
                 .unwrap_or(s)
+        }
+        "files" => {
+            if serde_json::from_str::<Vec<Value>>(value).is_ok() {
+                value.into()
+            } else if value.trim().is_empty() {
+                "[]".into()
+            } else {
+                serde_json::to_string(&vec![json!({"name":value})]).unwrap()
+            }
+        }
+        "location" => {
+            if serde_json::from_str::<Value>(value).is_ok_and(|v| v.is_object()) {
+                value.into()
+            } else {
+                serde_json::to_string(&json!({"address":value})).unwrap()
+            }
         }
         "number" => decimal_key(value),
         "checkbox" => match value.trim().to_ascii_lowercase().as_str() {
@@ -387,6 +442,9 @@ fn decimal_key(value: &str) -> String {
 }
 pub(crate) fn property_matches(raw: &str, property: &Value) -> bool {
     let kind = text(property, "type");
+    if matches!(kind, "files" | "location") {
+        return raw.trim() == text(property, "raw").trim();
+    }
     normalized(raw, kind) == normalized(text(property, "value"), kind)
 }
 fn matching(view: &Value, full: &Value) -> Option<Vec<usize>> {
@@ -680,12 +738,96 @@ pub(crate) fn finish(
                 ));
                 continue;
             }
-            if kind == "multiselect" {
+            if matches!(
+                kind,
+                "multiselect" | "person" | "files" | "location" | "createdTime" | "editedTime"
+            ) {
                 pages[parent]["database"]["rows"][row]["values"][&colid] = p["value"].clone();
             } else if kind == "date" {
                 pages[parent]["database"]["rows"][row]["values"][&colid] =
                     json!(normalized(&raw, kind));
             }
+        }
+    }
+}
+
+pub(crate) fn resolve_media(
+    page: &mut Value,
+    paths: &HashMap<String, String>,
+    warnings: &mut Vec<String>,
+) {
+    fn rewrite(
+        raw: &str,
+        source: &str,
+        paths: &HashMap<String, String>,
+        warnings: &mut Vec<String>,
+    ) -> String {
+        let Ok(mut files) = serde_json::from_str::<Vec<Value>>(raw) else {
+            return raw.into();
+        };
+        for file in &mut files {
+            let Some(path) = file
+                .get("sourcePath")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            if let Some(asset) = paths.get(&crate::import::resolve(source, &path)) {
+                file["asset"] = json!(format!("asset:{asset}"));
+            } else {
+                warnings.push(format!(
+                    "网页媒体链接无法找到本地文件，原链接已保留在导入正文：{path}"
+                ));
+                file["sourcePath"] = json!(path);
+            }
+            if file.get("asset").is_some() {
+                file.as_object_mut().unwrap().remove("sourcePath");
+            }
+        }
+        serde_json::to_string(&files).unwrap()
+    }
+    let source = text(page, "importSource").to_owned();
+    if let Some(properties) = page["importProperties"].as_array_mut() {
+        for p in properties {
+            if text(p, "type") == "files" {
+                p["value"] = json!(rewrite(text(p, "value"), &source, paths, warnings));
+            }
+        }
+    }
+    if let Some(columns) = page["database"]["columns"].as_array() {
+        let ids: Vec<_> = columns
+            .iter()
+            .filter(|c| text(c, "type") == "files")
+            .map(|c| text(c, "id").to_owned())
+            .collect();
+        for row in page["database"]["rows"].as_array_mut().unwrap() {
+            for id in &ids {
+                row["values"][id] =
+                    json!(rewrite(text(&row["values"], id), &source, paths, warnings));
+            }
+        }
+    }
+}
+
+pub(crate) fn apply_original_metadata(page: &mut Value) {
+    let properties = page["importProperties"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for (key, kind) in [
+        ("createdAt", "createdTime"),
+        ("createdBy", "createdBy"),
+        ("updatedAt", "editedTime"),
+        ("updatedBy", "editedBy"),
+    ] {
+        if let Some(value) = properties
+            .iter()
+            .find(|p| text(p, "type") == kind)
+            .map(|p| text(p, "value"))
+            .filter(|v| !v.is_empty())
+        {
+            page[key] = json!(value);
         }
     }
 }
