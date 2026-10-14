@@ -1,4 +1,5 @@
 const zhCN={
+ propertyContextChanged:'属性所属数据库已改变，请重新打开设置',propertyMenu:'属性操作',renameProperty:'重命名',editProperty:'编辑属性',propertyVisibility:'属性可见性',duplicateProperty:'创建属性副本',propertyLayout:'自定义布局',propertyAlways:'始终显示',propertyNonempty:'为空时隐藏',propertyHidden:'始终隐藏',propertyLayoutHint:'设置数据库子页面的属性顺序和显示方式，适用于这个数据库的所有子页面。',propertySettingsHint:'字段名称、类型和选项修改会应用到父数据库及其所有记录。',
  recordProperties:'数据库属性',emptyProperty:'空白',recordRecoveryCopy:'属性草稿与当前版本不同，已保留为恢复副本',recordRecoverySuffix:'属性草稿恢复副本',
  batchManage:'批量管理',finishSelection:'退出批量',selectPage:'选择页面',selectedCount:'已选择',selectAllPages:'选择全部页面',selectVisiblePages:'选择当前列表',clearSelection:'取消选择',trashSelectedPages:'批量移至回收站',confirmTrashSelected:'确认移至回收站',batchTrashHint:'所选页面及其子页面会一起移至回收站，之后可以恢复。',permanentDelete:'永久删除',emptyTrash:'清空回收站',purgeSelected:'永久删除所选',purgeTitle:'确认永久清理',purgeHint:'删除后无法从回收站恢复。只清理这些页面及不再被其他页面引用的附件。',purgeHistoryHint:'本地版本历史和远程仓库仍保留旧内容；本次不改写历史，历史所占空间不会因此全部释放。',purgePages:'将删除的页面',purgeAssets:'将清理的附件',purgeBytes:'预计释放空间',confirmPurge:'永久删除并清理',purgeDone:'清理完成，释放空间',purgeStopped:'清理中断，已释放空间',purgeWorkspaceChanged:'工作区已切换，请重新预览',trashSelection:'选择回收站页面',
 

@@ -49,3 +49,28 @@ test('并发触发保存共用同一个队列，不重复写入旧版本',async(
 test('导入属性快照被用户删减后，不能把剩下的手写内容继续隐藏',()=>{
  const blocks=visibleRecordBlocks({...child,blocks:[{id:'manual',type:'paragraph',text:'状态: 观看中'}]},linkedRecord(child,[parent]));assert.equal(blocks.length,1);
 });
+
+test('单击属性名称入口可用，布局隐藏不删除字段值',()=>{
+ const html=renderRecordProperties(child,[parent]);assert.match(html,/<button[^>]+data-action="propertyMenu"[^>]+data-column="status"/);assert.match(html,/data-action="addColumn"/);
+ const configured=structuredClone(parent);configured.database.propertyLayout={order:['date','priority','status'],visibility:{status:'hidden',date:'nonempty'}};
+ const output=renderRecordProperties(child,[configured]);assert.ok(!output.includes('data-property="status"'));assert.ok(!output.includes('data-property="date"'));assert.equal(configured.database.rows[0].values.status,'观看中');assert.match(output,/data-action="propertyLayout"/);
+});
+test('属性定义修改保存父数据库，其他记录和子页正文不被覆盖',async()=>{
+ const {recordSchemaDraft,RecordDraftQueue}=await import('../ui/web/record-page.mjs');
+ const draft=recordSchemaDraft(child,[parent],db=>{db.columns.find(c=>c.id==='status').name='观看状态';});assert.equal(draft.database.columns[1].name,'观看状态');assert.equal(draft.database.rows[0].values.status,'观看中');assert.equal(parent.database.columns[1].name,'状态');
+ assert.throws(()=>recordSchemaDraft(child,[{...parent,locked:true}],()=>{}));
+ const saved=[];const queue=new RecordDraftQueue({save:async(workspace,page)=>{saved.push(page);return {...page,revision:page.revision+1};}});queue.edit('workspace',child,[parent],'row','priority','2');queue.editSchema('workspace',child,[parent],db=>{db.columns[1].name='观看状态';});await queue.flush();assert.equal(saved[0].database.rows[0].values.priority,'2');assert.equal(saved[0].database.columns[1].name,'观看状态');
+});
+
+test('重命名属性保持子页面原顺序，布局依赖字段标识而非旧名称',async()=>{
+ const {recordSchemaDraft,recordPropertyColumns}=await import('../ui/web/record-page.mjs');const draft=recordSchemaDraft(child,[parent],db=>{db.columns.find(c=>c.id==='priority').name='观影评分';});assert.deepEqual(recordPropertyColumns(child,draft).map(c=>c.id),['priority','status','date']);
+});
+
+test('旧文本导入在属性重命名或删除后仍按原始字段核对快照',async()=>{
+ const {recordSchemaDraft}=await import('../ui/web/record-page.mjs');const legacy={...child,importProperties:[]};
+ for(const mutate of [db=>{db.columns.find(c=>c.id==='priority').name='评分';},db=>{db.columns=db.columns.filter(c=>c.id!=='status');}]){const draft=recordSchemaDraft(legacy,[parent],mutate);assert.deepEqual(visibleRecordBlocks(legacy,linkedRecord(legacy,[draft])).map(b=>b.id),['body']);}
+});
+
+test('为空时隐藏区分空数字与真实零',()=>{
+ const owner=structuredClone(parent);owner.database.propertyLayout={visibility:{priority:'nonempty'}};owner.database.rows[0].values.priority='';assert.ok(!renderRecordProperties(child,[owner]).includes('data-property="priority"'));owner.database.rows[0].values.priority='0';assert.ok(renderRecordProperties(child,[owner]).includes('data-property="priority"'));
+});

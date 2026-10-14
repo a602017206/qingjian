@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+const addr='127.0.0.1:3425',base=`http://${addr}`;
+const server=spawn(path.resolve(`target/debug/server${process.platform==='win32'?'.exe':''}`),[],{env:{...process.env,QINGJIAN_DEV_ADDR:addr,QINGJIAN_DATA_DIR:path.resolve('.test-data',`property-menu-${Date.now()}`)},stdio:'pipe'});
+let browser,workspaceId;
+const api=async(action,data={})=>{const response=await fetch(`${base}/api/${action}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({workspaceId,...data})});const result=await response.json();if(result.error)throw new Error(result.error);return result.data;};
+try{
+ await mkdir('test-results',{recursive:true});
+ for(let i=0;i<100;i++){try{if((await fetch(base)).ok)break;}catch{}await new Promise(resolve=>setTimeout(resolve,100));}
+ browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});
+ const page=await browser.newPage({viewport:{width:1440,height:1000}}),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.goto(base);await page.waitForSelector('.home-heading');
+ await page.locator('.workspace-switch').click();await page.locator('[data-action="newWorkspace"]').click();await page.locator('#workspace-form [name="name"]').fill('子页属性验证');await page.locator('#workspace-form [type="submit"]').click();await page.waitForFunction(()=>document.querySelector('.workspace-switch strong')?.textContent==='子页属性验证');workspaceId=(await api('bootstrap')).activeId;
+ await page.locator('.sidebar-bottom [data-action="import"]').click();const chooser=page.waitForEvent('filechooser');await page.locator('[data-action="chooseImport"]').click();await (await chooser).setFiles('tests/fixtures/notion-html.zip');await page.waitForSelector('.import-success');await page.locator('.modal-header [data-action="closeModal"]').click();
+ await page.locator('.tree-entry .page-nav').click();const parentId=await page.locator('.tree-entry .page-nav').getAttribute('data-id');await page.locator('.db-name-cell [data-action="openRow"]').first().click();
+ const panel=page.locator('.record-page-properties');await panel.waitFor();assert.match(await panel.innerText(),/评分/);assert.ok(await panel.locator('.option-blue').count());assert.ok(await panel.locator('.option-green').count());assert.match(await panel.innerText(),/空白/);
+ assert.ok(!(await page.locator('.editor').innerText()).includes('评分: 8'));assert.match(await page.locator('.editor').innerText(),/正文一/);
+ let pages=await api('pages'),parent=pages.find(p=>p.id===parentId),childId=parent.database.rows[0].pageId;const parentNav=()=>page.locator(`.tree-entry .page-nav[data-id="${parentId}"]`);const childNav=()=>page.locator(`.tree-entry .page-nav[data-id="${childId}"]`);
+
+ const label=name=>panel.getByRole('button',{name,exact:true}),menu=action=>page.locator(`.property-context-menu [data-action="${action}"]`);
+ await label('评分').click();assert.equal(await menu('propertyRename').count(),1);assert.equal(await menu('editColumn').count(),1);await page.screenshot({path:'test-results/子页面属性操作菜单.png',fullPage:true,animations:'disabled'});
+ await menu('propertyRename').click();await page.locator('#prompt-form [name="value"]').fill('观影评分');await page.locator('#prompt-form [type="submit"]').click();assert.equal(await label('观影评分').count(),1);assert.equal(await panel.locator('.record-property-row').first().getAttribute('data-property'),'col1');
+ await label('是否观看').click();await menu('editColumn').click();assert.equal(await page.locator('#column-form [name="type"]').inputValue(),'status');await page.locator('#column-form [data-option-color="观看中"]').selectOption('purple');await page.locator('#column-form [type="submit"]').click();assert.ok(await panel.locator('.option-purple').count());
+ await label('观影评分').click();await menu('editColumn').click();await page.locator('#column-form [name="type"]').selectOption('text');await page.locator('#column-form [type="submit"]').click();assert.equal(await panel.locator('input[aria-label="观影评分"]').getAttribute('type'),'text');assert.equal(await panel.locator('input[aria-label="观影评分"]').inputValue(),'8');
+ await label('观影评分').click();await menu('propertyDuplicate').click();assert.equal(await panel.locator('input[aria-label="观影评分 · 副本"]').inputValue(),'8');
+ await panel.locator('[data-action="addColumn"]').click();await page.locator('#column-form [name="name"]').fill('观影心得');await page.locator('#column-form [type="submit"]').click();await panel.locator('input[aria-label="观影心得"]').fill('值得重看');
+ await label('观影心得').click();await menu('propertyVisibility').click();await page.locator('#property-visibility-form [name="visibility"]').selectOption('hidden');await page.locator('#property-visibility-form [type="submit"]').click();assert.equal(await label('观影心得').count(),0);
+ await panel.locator('[data-action="propertyLayout"]').click();await page.getByLabel('观影心得 属性可见性').selectOption('always');await page.locator('.property-layout-list>div').filter({hasText:'观影心得'}).locator('[data-step="-1"]').click();await page.locator('.modal-header [data-action="closeModal"]').click();assert.equal(await panel.locator('input[aria-label="观影心得"]').inputValue(),'值得重看');
+ await label('观影评分 · 副本').click();await menu('removeColumn').click();await page.locator('[data-action="confirmRemoveColumn"]').click();assert.equal(await label('观影评分 · 副本').count(),0);
+ await parentNav().click();await page.waitForSelector('.database-table');assert.match(await page.locator('.database-table thead').innerText(),/观影评分/);assert.match(await page.locator('.database-table thead').innerText(),/观影心得/);assert.equal(await page.locator('.database-table input[aria-label="观影评分"]').first().inputValue(),'8');assert.equal(await page.locator('.database-table input[aria-label="观影心得"]').first().inputValue(),'值得重看');assert.ok(await page.locator('.database-table .option-purple').count());
+ await page.locator('.db-name-cell [data-action="openRow"]').nth(1).click();assert.equal(await label('观影评分').count(),1);assert.equal(await panel.locator('input[aria-label="观影评分"]').inputValue(),'6');await parentNav().click();await page.locator('.db-name-cell [data-action="openRow"]').first().click();await page.reload();await page.waitForSelector('.home-heading');await parentNav().click();await page.locator('.db-name-cell [data-action="openRow"]').first().click();assert.equal(await label('观影评分').count(),1);assert.equal(await panel.locator('input[aria-label="观影心得"]').inputValue(),'值得重看');
+ await page.setViewportSize({width:390,height:844});await label('是否观看').click();assert.equal(await menu('editColumn').isVisible(),true);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);await page.screenshot({path:'test-results/手机属性操作菜单.png',fullPage:true,animations:'disabled'});await page.keyboard.press('Escape');await page.setViewportSize({width:1440,height:1000});
+ parent=(await api('pages')).find(p=>p.id===parentId);await api('save',{page:{...parent,locked:true}});await page.reload();await page.waitForSelector('.home-heading');await parentNav().click();await page.locator('.db-name-cell [data-action="openRow"]').first().click();assert.equal(await label('是否观看').isDisabled(),true);assert.equal(await panel.locator('[data-action="addColumn"]').isDisabled(),true);
+ assert.deepEqual(errors,[]);console.log('属性菜单、定义联动、副本删除、显示排序、刷新及手机入口验证通过');
+}finally{await browser?.close();server.kill('SIGTERM');}
