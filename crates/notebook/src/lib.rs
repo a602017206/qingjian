@@ -1,6 +1,7 @@
 mod cleanup;
 mod git;
 pub use git::configure_network;
+mod html_import;
 mod import;
 mod markdown;
 mod notion;

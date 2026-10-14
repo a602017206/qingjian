@@ -11,6 +11,7 @@ export function inlineMarkdown(value, pages=[]) {
  text=text.replace(/\[\[([^\]]+)\]\]/g, (_,name)=>{const p=pages.find(p=>!p.deleted&&p.title===name);return p?`<a href="page:${p.id}" class="page-link">↗ ${name}</a>`:`<span class="unresolved-link">${name}</span>`;});
  text=text.replace(/(!?)\[([^\]]*)\]\(([^)]+)\)/g, (_,image,label,target)=>{
   const url=safeURL(target);if(!url) return label;
+  if(!image&&url.startsWith('asset:'))return `<span class="asset-link" data-asset="${escapeHTML(url.slice(6))}" data-label="${label}"></span>`;
   if(image) return url.startsWith('asset:')?`<span class="asset-preview" data-asset="${escapeHTML(url.slice(6))}"></span>`:`<span class="external-image">${label || '远程图片'} <a href="${escapeHTML(url)}">↗</a></span>`;
   return `<a href="${escapeHTML(url)}"${url.startsWith('http')?' target="_blank" rel="noopener noreferrer"':''}>${label}</a>`;
  });

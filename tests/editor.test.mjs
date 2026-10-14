@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseMarkdown, toMarkdown, filterPages, safeURL, inlineMarkdown } from '../ui/web/core.mjs';
 
+test('附件普通链接交给附件加载器，保留标签且不跳转无效地址',()=>{
+ const html=inlineMarkdown('[原始文档](asset:abc.pdf)');
+ assert.match(html,/data-asset="abc.pdf"/);
+ assert.match(html,/data-label="原始文档"/);
+ assert.ok(!html.includes('href="asset:'));
+});
+
 test('中文内容与待办及代码块往返', () => {
  const blocks=parseMarkdown('# 标题\n\n- [x] 完成事项\n\n```js\nconst x = 1;\n```');
  assert.equal(blocks[0].type,'h1');

@@ -880,3 +880,256 @@ fn different_csv_variants_are_not_merged_and_exact_parent_wins() {
     let child = ps.iter().find(|p| p["title"] == "子").unwrap();
     assert_eq!(child["parentId"], exact["id"]);
 }
+
+#[test]
+fn notion_html_database_and_csv_restore_types_colors_children_and_body() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "网页结构");
+    let parent = r#"<html><head><style>不要作为正文</style><meta name="data-notion-page-icon" content="🗓️"></head><body><article id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" class="page"><header><h1 class="page-title">影视剧</h1><p class="page-description">观影记录</p></header><div class="page-body"><p>父页面介绍</p><table class="collection-content"><thead><tr><th><img src="font_gray.svg">名称</th><th><img src="burst_gray.svg">是否观看</th><th><img src="list_gray.svg">类型</th><th><img src="calendar_gray.svg">观看时间</th></tr></thead><tbody><tr id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"><td class="cell-title"><a href="影视剧/同名%20bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html" data-notion-page-id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb">同名</a></td><td><span class="status-value select-value-color-blue">观看中</span></td><td><span class="selected-value select-value-color-green">动漫</span></td><td><time datetime="2025-10-15">2025/10/15</time></td></tr><tr id="cccccccc-cccc-cccc-cccc-cccccccccccc"><td class="cell-title"><a href="影视剧/同名%20cccccccccccccccccccccccccccccccc.html">同名</a></td><td><span class="status-value select-value-color-red">未观看</span></td><td><span class="selected-value select-value-color-pink">电影</span><span class="selected-value select-value-color-green">动漫</span></td><td></td></tr></tbody></table></div></article><script>恶意脚本</script></body></html>"#;
+    let a = r#"<article id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" class="page"><header><h1 class="page-title">同名</h1><table class="properties"><tr class="property-row property-row-number"><th>评分</th><td>8</td></tr><tr class="property-row property-row-multi_select"><th>类型</th><td><span class="selected-value select-value-color-green">动漫</span></td></tr></table></header><div class="page-body"><p>正文一 <strong>重要内容</strong></p><a href="../影视剧%20aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html">返回父级</a><script>恶意脚本</script></div></article>"#;
+    let b = r#"<article id="cccccccc-cccc-cccc-cccc-cccccccccccc" class="page"><header><h1 class="page-title">同名</h1><div class="properties"></div></header><div class="page-body"><p>正文二</p></div></article>"#;
+    let bytes=zip_files(&[("影视剧 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html",parent),("影视剧 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv","名称,评分,是否观看,类型,观看时间\n同名,8,观看中,动漫,2025/10/15\n同名,6,未观看,\"电影, 动漫\",\n"),("影视剧/同名 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html",a),("影视剧/同名 cccccccccccccccccccccccccccccccc.html",b)]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"网页.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let ps = pages.as_array().unwrap();
+    assert_eq!(report["pages"], 3);
+    let roots: Vec<_> = ps
+        .iter()
+        .filter(|p| p["parentId"].as_str().unwrap_or("").is_empty())
+        .collect();
+    assert_eq!(roots.len(), 1);
+    let root = roots[0];
+    assert_eq!(root["icon"], "🗓️");
+    let cols = root["database"]["columns"].as_array().unwrap();
+    let status = cols.iter().find(|c| c["name"] == "是否观看").unwrap();
+    assert_eq!(status["type"], "status");
+    assert_eq!(status["optionColors"]["观看中"], "blue");
+    assert_eq!(status["optionColors"]["未观看"], "red");
+    let types = cols.iter().find(|c| c["name"] == "类型").unwrap();
+    assert_eq!(types["type"], "multiselect");
+    assert_eq!(types["optionColors"]["电影"], "pink");
+    assert_eq!(
+        cols.iter().find(|c| c["name"] == "评分").unwrap()["type"],
+        "number"
+    );
+    assert!(root["blocks"].to_string().contains("父页面介绍"));
+    assert!(!root["blocks"].to_string().contains("font_gray"));
+    assert!(!root["blocks"].to_string().contains("恶意脚本"));
+    assert_eq!(root["database"]["rows"].as_array().unwrap().len(), 2);
+    for row in root["database"]["rows"].as_array().unwrap() {
+        let child = ps.iter().find(|p| p["id"] == row["pageId"]).unwrap();
+        assert_eq!(child["parentId"], root["id"]);
+        assert!(child["blocks"].to_string().contains("正文"));
+        assert!(!child["blocks"].to_string().contains("恶意脚本"));
+    }
+    let child = ps
+        .iter()
+        .find(|p| p["blocks"].to_string().contains("正文一"))
+        .unwrap();
+    assert!(child["blocks"]
+        .to_string()
+        .contains(&format!("page:{}", root["id"].as_str().unwrap())));
+}
+#[test]
+#[ignore = "真实网页导出仅在本机显式验证，不提交原文件"]
+fn actual_html_notion_export_has_one_database_and_original_colors() {
+    use base64::Engine;
+    let bytes =
+        std::fs::read(std::env::var("QINGJIAN_TEST_HTML_ZIP").expect("请设置原始网页压缩包路径"))
+            .unwrap();
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "网页真实验证");
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"网页.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let ps = pages.as_array().unwrap();
+    assert_eq!(report["pages"], 64);
+    let roots: Vec<_> = ps
+        .iter()
+        .filter(|p| p["parentId"].as_str().unwrap_or("").is_empty())
+        .collect();
+    assert_eq!(roots.len(), 1);
+    let root = roots[0];
+    assert_eq!(root["title"], "影视剧");
+    assert_eq!(root["icon"], "🗓️");
+    let cols = root["database"]["columns"].as_array().unwrap();
+    assert_eq!(cols.len(), 11);
+    assert_eq!(
+        cols.iter().find(|c| c["name"] == "类型").unwrap()["type"],
+        "multiselect"
+    );
+    let status = cols.iter().find(|c| c["name"] == "是否观看").unwrap();
+    assert_eq!(status["optionColors"]["已看完"], "green");
+    assert_eq!(
+        cols.iter().find(|c| c["name"] == "平台").unwrap()["optionColors"]["NAS"],
+        "brown"
+    );
+    let rows = root["database"]["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 63);
+    for row in rows {
+        assert!(ps
+            .iter()
+            .any(|p| p["id"] == row["pageId"] && p["parentId"] == root["id"]));
+    }
+    assert_eq!(ps.iter().filter(|p| p["title"] == "少年歌行").count(), 2);
+    assert!(!pages.to_string().contains("font_gray.svg"));
+}
+#[test]
+fn html_conflicting_child_property_does_not_overwrite_csv_value() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "属性冲突");
+    let root = r#"<article class="page" id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"><h1 class="page-title">父</h1><div class="page-body"><table class="collection-content"><thead><tr><th>名称</th></tr></thead><tbody><tr id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><td><a href="父/子 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html">子</a></td></tr></tbody></table></div></article>"#;
+    let child = r#"<article class="page" id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><h1 class="page-title">子</h1><table class="properties"><tr class="property-row property-row-multi_select"><th>分类</th><td><span class="selected-value select-value-color-pink">不同分类</span></td></tr></table><div class="page-body"><p>正文</p></div></article>"#;
+    let bytes = zip_files(&[
+        ("父 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html", root),
+        (
+            "父 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv",
+            "名称,分类\n子,原始分类",
+        ),
+        ("父/子 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html", child),
+    ]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"冲突.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let parent = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["database"].is_object())
+        .unwrap();
+    assert_eq!(
+        parent["database"]["rows"][0]["values"]["col1"],
+        "[\"原始分类\"]"
+    );
+    assert!(report["warnings"].to_string().contains("冲突"));
+    assert!(pages.to_string().contains("不同分类"));
+}
+#[test]
+fn html_mismatched_record_identity_is_not_relinked_by_title() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "链接标识冲突");
+    let root = r#"<article class="page" id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"><h1 class="page-title">父</h1><div class="page-body"><table class="collection-content"><thead><tr><th>名称</th></tr></thead><tbody><tr id="cccccccccccccccccccccccccccccccc"><td><a href="父/子 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html">子</a></td></tr></tbody></table></div></article>"#;
+    let child = r#"<article class="page" id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><h1 class="page-title">子</h1><div class="page-body"><p>正文</p></div></article>"#;
+    let bytes = zip_files(&[
+        ("父 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html", root),
+        ("父/子 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.html", child),
+    ]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"标识.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let root = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["database"].is_object())
+        .unwrap();
+    assert!(root["database"]["rows"][0]["pageId"].is_null());
+    assert!(report["warnings"].to_string().contains("引用无法唯一"));
+}
+#[test]
+fn html_source_identity_conflict_prevents_csv_merge() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "父标识冲突");
+    let html = r#"<article class="page" id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><h1 class="page-title">父</h1><div class="page-body"><table class="collection-content"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>记录</td></tr></tbody></table></div></article>"#;
+    let bytes = zip_files(&[
+        ("父 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html", html),
+        (
+            "父 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.csv",
+            "名称,备注\n记录,完整字段",
+        ),
+    ]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"源.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    assert_eq!(report["pages"], 2);
+    assert!(report["warnings"].to_string().contains("标识"));
+}
+
+#[test]
+fn html_database_and_properties_preserve_attachments_and_custom_links() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "网页附件");
+    let html = r#"<article class="page"><h1 class="page-title">资料</h1><table class="properties"><tr class="property-row-text"><th>参考</th><td><a href="附件/说明.txt">原始说明</a></td></tr></table><div class="page-body"><table class="collection-content"><thead><tr><th>名称</th><th>附件</th><th>图片</th><th>链接</th></tr></thead><tbody><tr><td>甲</td><td><a href="附件/文档.pdf">查看文档</a></td><td><img src="附件/海报.png" alt="海报"></td><td><a href="https://example.com/detail">详情</a></td></tr></tbody></table></div></article>"#;
+    let bytes = zip_files(&[
+        ("资料.html", html),
+        ("资料.csv", "名称,附件,图片,链接\n甲,查看文档,,详情"),
+        ("附件/文档.pdf", "原始文档"),
+        ("附件/海报.png", "原始图片"),
+        ("附件/说明.txt", "原始说明"),
+    ]);
+    s.dispatch("import",json!({"workspaceId":w,"name":"附件.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    assert_eq!(pages.as_array().unwrap().len(), 1);
+    let body = pages[0]["blocks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["text"].as_str().unwrap())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(body.contains("[详情](https://example.com/detail)"));
+    assert!(body.contains("查看文档"));
+    let references = regex::Regex::new(r"asset:([A-Za-z0-9_.-]+)").unwrap();
+    let mut content = vec![];
+    for item in references.captures_iter(&body) {
+        let asset = s
+            .dispatch("asset", json!({"workspaceId":w,"name":&item[1]}))
+            .unwrap();
+        content.push(
+            String::from_utf8(
+                base64::engine::general_purpose::STANDARD
+                    .decode(asset["data"].as_str().unwrap())
+                    .unwrap(),
+            )
+            .unwrap(),
+        );
+    }
+    content.sort();
+    assert_eq!(content, vec!["原始图片", "原始文档", "原始说明"]);
+}
+
+#[test]
+fn html_large_numbers_match_csv_without_precision_loss() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "精确标识");
+    let html = r#"<article class="page"><h1 class="page-title">记录</h1><div class="page-body"><table class="collection-content"><thead><tr><th>名称</th><th><img src="hashtag_gray.svg">编号</th></tr></thead><tbody><tr id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><td>同名</td><td>9007199254740992</td></tr><tr id="cccccccccccccccccccccccccccccccc"><td>同名</td><td>9007199254740993</td></tr></tbody></table></div></article>"#;
+    let bytes = zip_files(&[
+        ("记录.html", html),
+        (
+            "记录.csv",
+            "名称,编号,备注\n同名,9007199254740993,第二条\n同名,9007199254740992,第一条",
+        ),
+    ]);
+    s.dispatch("import",json!({"workspaceId":w,"name":"数字.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    assert_eq!(pages.as_array().unwrap().len(), 1);
+    let rows = pages[0]["database"]["rows"].as_array().unwrap();
+    assert_eq!(rows[0]["sourceId"], "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+    assert_eq!(rows[0]["values"]["col2"], "第一条");
+    assert_eq!(rows[1]["sourceId"], "cccccccccccccccccccccccccccccccc");
+    assert_eq!(rows[1]["values"]["col2"], "第二条");
+}
+
+#[test]
+fn html_identical_visible_records_do_not_guess_hidden_csv_fields() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "同名歧义");
+    let html = r#"<article class="page"><h1 class="page-title">记录</h1><div class="page-body"><table class="collection-content"><thead><tr><th>名称</th></tr></thead><tbody><tr id="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"><td>同名</td></tr><tr id="cccccccccccccccccccccccccccccccc"><td>同名</td></tr></tbody></table></div></article>"#;
+    let bytes = zip_files(&[
+        ("记录.html", html),
+        ("记录.csv", "名称,备注\n同名,第二条\n同名,第一条"),
+    ]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"歧义.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    assert_eq!(report["pages"], 2);
+    assert!(report["warnings"].to_string().contains("分别保留"));
+}

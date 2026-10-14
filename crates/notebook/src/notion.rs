@@ -202,6 +202,9 @@ pub(crate) fn link_records(
         };
         let columns = parent["database"]["columns"].as_array().unwrap();
         let rows = parent["database"]["rows"].as_array().unwrap();
+        if rows.iter().any(|r| text(r, "pageId") == text(child, "id")) {
+            continue;
+        }
         let mut properties = HashMap::new();
         let lines: Vec<_> = body.lines().collect();
         let start = if lines.first().map(|l| l.starts_with("# ")).unwrap_or(false) {
@@ -224,7 +227,26 @@ pub(crate) fn link_records(
             .iter()
             .enumerate()
             .filter(|(_, row)| {
-                text(&row["sourceValues"], text(&columns[0], "id")) == text(child, "title")
+                (child.get("importProperties").is_none()
+                    || (text(row, "sourceId").is_empty() && text(row, "sourceHref").is_empty()))
+                    && text(&row["sourceValues"], text(&columns[0], "id")) == text(child, "title")
+                    && child["importProperties"]
+                        .as_array()
+                        .map(|props| {
+                            props.iter().all(|p| {
+                                columns
+                                    .iter()
+                                    .find(|c| text(c, "name") == text(p, "name"))
+                                    .map(|c| {
+                                        crate::html_import::property_matches(
+                                            text(&row["sourceValues"], text(c, "id")),
+                                            p,
+                                        )
+                                    })
+                                    .unwrap_or(true)
+                            })
+                        })
+                        .unwrap_or(true)
                     && columns.iter().all(|c| {
                         properties
                             .get(text(c, "name"))

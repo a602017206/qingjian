@@ -278,7 +278,7 @@ fn unpack(name: &str, data: &[u8], depth: u8) -> Result<Vec<(String, Vec<u8>)>> 
     };
     Ok(files)
 }
-fn resolve(name: &str, target: &str) -> String {
+pub(crate) fn resolve(name: &str, target: &str) -> String {
     let target =
         percent_encoding::percent_decode_str(target.trim_matches(['<', '>'])).decode_utf8_lossy();
     let path = Path::new(name)
@@ -317,6 +317,35 @@ fn rewrite(
         })
         .into_owned()
 }
+pub(crate) fn csv_database(name: &str, data: &[u8], warnings: &mut Vec<String>) -> Result<Value> {
+    let source = std::str::from_utf8(data)
+        .map_err(|_| format!("文件 {name} 不是有效的中文字符编码"))?
+        .trim_start_matches('\u{feff}');
+    let mut reader = csv::Reader::from_reader(source.as_bytes());
+    let headers = reader
+        .headers()
+        .map_err(|e| format!("表格 {name} 无法读取：{e}"))?
+        .clone();
+    let mut columns: Vec<_> = headers
+        .iter()
+        .enumerate()
+        .map(|(i, h)| json!({"id":format!("col{i}"),"name":h,"type":"text"}))
+        .collect();
+    let mut rows = vec![];
+    for record in reader.records() {
+        let record = record.map_err(|e| format!("表格 {name} 无法读取：{e}"))?;
+        let values = record
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (format!("col{i}"), json!(v)))
+            .collect::<serde_json::Map<_, _>>();
+        rows.push(json!({"id":uid(),"sourceValues":values.clone(),"values":values}));
+    }
+    if infer_csv_columns(&mut columns, &mut rows) {
+        warnings.push(format!("表格 {name} 的状态、选项、日期与数值类型根据字段和内容推断；纯文本表格不提供原始颜色，已分配可调整颜色，原始值保留。"));
+    }
+    Ok(json!({"columns":columns,"rows":rows}))
+}
 pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
     Store::pages_at(dir)?;
     let mut files = unpack(name, data, 0)?;
@@ -333,6 +362,13 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
     } else {
         crate::notion::variants(&files)?
     };
+    let (html_pages, html_aliases) = if backup {
+        (HashMap::new(), HashMap::new())
+    } else {
+        crate::html_import::prepare(&files, &csv_pairs)?
+    };
+    let mut aliases = csv_pairs.clone();
+    aliases.extend(html_aliases);
     let mut seen = HashSet::new();
     let mut page_ids = HashMap::new();
     let mut asset_ids = HashMap::new();
@@ -383,17 +419,25 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
             }
         }
     }
-    for (base, full) in &csv_pairs {
-        if let Some(id) = page_ids.get(full).cloned() {
+    for (base, target) in &aliases {
+        let mut canonical = target.as_str();
+        let mut visited = HashSet::new();
+        while let Some(next) = aliases.get(canonical) {
+            if !visited.insert(canonical.to_owned()) {
+                return Err("导出文件来源出现循环".into());
+            }
+            canonical = next;
+        }
+        if let Some(id) = page_ids.get(canonical).cloned() {
             page_ids.insert(base.clone(), id);
             warnings.push(format!(
-                "展示表格与完整字段表格已核对为同一数据库，保留全部记录及字段：{base}"
+                "同源导出文件已核对归并，全部字段和记录保留：{base}"
             ));
         }
     }
     let mut pages = vec![];
     for (n, b) in &files {
-        if csv_pairs.contains_key(n) {
+        if aliases.contains_key(n) {
             continue;
         }
         let Some(id) = page_ids.get(n) else { continue };
@@ -445,34 +489,28 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                     block["text"] = json!(body)
                 }
             }
+        } else if let Some(html) = html_pages.get(n) {
+            p["title"] = json!(html.title);
+            p["importNotionId"] = json!(html.source_id);
+            p["importProperties"] = json!(html.properties);
+            p["importIcon"] = json!(html.icon);
+            if !html.icon.is_empty()
+                && html.icon.chars().count() <= 16
+                && !html.icon.starts_with("http")
+            {
+                p["icon"] = json!(html.icon);
+            }
+            let body = rewrite(&html.body, n, &page_ids, &asset_ids);
+            p["blocks"] = json!(crate::markdown::parse(&body));
+            if let Some(db) = &html.database {
+                p["database"] = db.clone();
+                if html.icon.is_empty() {
+                    p["icon"] = json!("🗂️");
+                }
+            }
+            warnings.extend(html.warnings.clone());
         } else if extension(n) == "csv" {
-            let source = std::str::from_utf8(b)
-                .map_err(|_| format!("文件 {n} 不是有效的中文字符编码"))?
-                .trim_start_matches('\u{feff}');
-            let mut reader = csv::Reader::from_reader(source.as_bytes());
-            let headers = reader
-                .headers()
-                .map_err(|e| format!("表格 {n} 无法读取：{e}"))?
-                .clone();
-            let mut columns: Vec<_> = headers
-                .iter()
-                .enumerate()
-                .map(|(i, h)| json!({"id":format!("col{i}"),"name":h,"type":"text"}))
-                .collect();
-            let mut rows = vec![];
-            for record in reader.records() {
-                let record = record.map_err(|e| format!("表格 {n} 无法读取：{e}"))?;
-                let values = record
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| (format!("col{i}"), json!(v)))
-                    .collect::<serde_json::Map<_, _>>();
-                rows.push(json!({"id":uid(),"sourceValues":values.clone(),"values":values}));
-            }
-            if infer_csv_columns(&mut columns, &mut rows) {
-                warnings.push(format!("表格 {n} 的状态、选项、日期与数值类型根据字段和内容推断；纯文本表格不提供原始颜色，已分配可调整颜色，原始值保留。"));
-            }
-            p["database"] = json!({"columns":columns,"rows":rows});
+            p["database"] = csv_database(n, b, &mut warnings)?;
             crate::notion::apply_view(&mut p["database"], n, &csv_pairs, &files)?;
             p["icon"] = json!("🗂️");
         } else {
@@ -496,9 +534,15 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
         }
         if !backup {
             p["importSource"] = json!(n);
-            let sources: Vec<_> = csv_pairs
+            let sources: Vec<_> = aliases
                 .iter()
-                .filter(|(_, full)| *full == n)
+                .filter(|(_, full)| {
+                    let mut target = full.as_str();
+                    while let Some(next) = aliases.get(target) {
+                        target = next;
+                    }
+                    target == n
+                })
                 .map(|(base, _)| base.clone())
                 .chain(std::iter::once(n.clone()))
                 .collect();
@@ -508,6 +552,7 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
     }
     if !backup {
         crate::notion::assign_parents(&mut pages, &page_ids, &mut warnings);
+        crate::html_import::finish(&mut pages, &page_ids, &mut warnings);
         crate::notion::link_records(&mut pages, &files, &mut warnings);
     }
     crate::validate_hierarchy(&pages)?;
@@ -549,14 +594,28 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
     outcome?;
     Ok(json!({"pages":pages.len(),"assets":assets.len(),"warnings":warnings}))
 }
-fn html_markdown(input: &str) -> String {
+pub(crate) fn html_markdown(input: &str) -> String {
+    html_markdown_mode(input, false)
+}
+pub(crate) fn html_body_markdown(input: &str, skip_collections: bool) -> String {
+    html_markdown_mode(input, skip_collections)
+}
+fn html_markdown_mode(input: &str, skip_collections: bool) -> String {
     use ego_tree::NodeRef;
     use scraper::{Html, Node};
-    fn walk(node: NodeRef<Node>, out: &mut String) {
+    fn walk(node: NodeRef<Node>, out: &mut String, skip_collections: bool) {
         match node.value() {
             Node::Text(t) => out.push_str(t),
             Node::Element(e) => {
                 let tag = e.name();
+                if e.classes().any(|c| {
+                    c == "property-icon"
+                        || c == "status-dot"
+                        || (skip_collections && c == "collection-content")
+                }) {
+                    return;
+                }
+
                 if [
                     "script", "style", "head", "iframe", "object", "noscript", "svg",
                 ]
@@ -588,7 +647,7 @@ fn html_markdown(input: &str) -> String {
                     _ => (),
                 };
                 for c in node.children() {
-                    walk(c, out)
+                    walk(c, out, skip_collections)
                 }
                 match tag {
                     "h1" | "h2" | "h3" | "p" | "div" | "section" | "figure" | "table" | "tr"
@@ -607,14 +666,14 @@ fn html_markdown(input: &str) -> String {
             }
             _ => {
                 for c in node.children() {
-                    walk(c, out)
+                    walk(c, out, skip_collections)
                 }
             }
         }
     }
     let html = Html::parse_document(input);
     let mut output = String::new();
-    walk(html.tree.root(), &mut output);
+    walk(html.tree.root(), &mut output, skip_collections);
     output
 }
 pub fn export(dir: &Path) -> Result<Value> {
