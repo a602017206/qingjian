@@ -1431,3 +1431,87 @@ fn backup_remaps_file_properties_with_legacy_asset_names() {
         b"original media bytes"
     );
 }
+
+#[test]
+fn notion_page_links_restore_icons_colors_and_backup_assets() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "页面条目");
+    let parent = r#"<article class="page"><header><div class="page-header-icon"><img class="icon" src="icons/main.png"></div><h1 class="page-title">后端开发</h1></header><div class="page-body"><figure class="link-to-page block-color-purple_background"><a href="后端开发/数据库.html"><img class="icon" src="icons/db.png">数据库</a></figure><figure class="link-to-page block-color-green"><a href="后端开发/缓存.html"><span class="icon">🟢</span>缓存</a></figure></div></article>"#;
+    let child = r#"<article class="page"><header><div class="page-header-icon"><span class="icon">🗃️</span></div><h1 class="page-title">数据库</h1></header><div class="page-body"><p>正文</p></div></article>"#;
+    let bytes = zip_files(&[
+        ("后端开发.html", parent),
+        ("后端开发/数据库.html", child),
+        ("后端开发/缓存.html", &child.replace("数据库", "缓存")),
+        ("icons/main.png", "主图标"),
+        ("icons/db.png", "子图标"),
+    ]);
+    let report=s.dispatch("import",json!({"workspaceId":w,"name":"条目.zip","data":base64::engine::general_purpose::STANDARD.encode(bytes)})).unwrap();
+    assert_eq!(report["pages"], 3);
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let ps = pages.as_array().unwrap();
+    let root = ps.iter().find(|p| p["title"] == "后端开发").unwrap();
+    let child = ps.iter().find(|p| p["title"] == "数据库").unwrap();
+    assert!(root["icon"].as_str().unwrap().starts_with("asset:"));
+    assert_eq!(child["icon"], "🗃️");
+    let blocks = root["blocks"].as_array().unwrap();
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0]["backgroundColor"], "purple");
+    assert!(blocks[0]["linkIcon"]
+        .as_str()
+        .unwrap()
+        .starts_with("asset:"));
+    assert_eq!(
+        blocks[0]["text"],
+        format!("[数据库](page:{})", child["id"].as_str().unwrap())
+    );
+    assert_eq!(blocks[1]["textColor"], "green");
+    let exported = s.dispatch("export", json!({"workspaceId":w})).unwrap();
+    let other = create(&mut s, "备份恢复");
+    s.dispatch(
+        "import",
+        json!({"workspaceId":other,"name":"备份.zip","data":exported["data"]}),
+    )
+    .unwrap();
+    let restored = s.dispatch("pages", json!({"workspaceId":other})).unwrap();
+    let root = restored
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["title"] == "后端开发")
+        .unwrap();
+    for asset in [
+        root["icon"].as_str().unwrap(),
+        root["blocks"][0]["linkIcon"].as_str().unwrap(),
+    ] {
+        s.dispatch(
+            "asset",
+            json!({"workspaceId":other,"name":asset.strip_prefix("asset:").unwrap()}),
+        )
+        .unwrap();
+    }
+}
+
+#[test]
+fn repeated_html_page_links_keep_their_individual_styles() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "重复页面条目");
+    let parent = r#"<article class="page"><header><h1 class="page-title">父</h1></header><div class="page-body"><p>参考 <a href="父/子.html">子</a></p><figure class="link-to-page block-color-red"><a href="父/子.html"><span class="icon">🔴</span>子</a></figure><figure class="link-to-page block-color-green"><a href="父/子.html"><span class="icon">🟢</span>子</a></figure></div></article>"#;
+    let child = r#"<article class="page"><header><h1 class="page-title">子</h1></header><div class="page-body"><p>原文</p></div></article>"#;
+    s.dispatch("import",json!({"workspaceId":w,"name":"重复.zip","data":base64::engine::general_purpose::STANDARD.encode(zip_files(&[("父.html",parent),("父/子.html",child)]))})).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    let parent = pages
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["title"] == "父")
+        .unwrap();
+    assert!(parent["blocks"][0]["textColor"].is_null());
+    assert_eq!(parent["blocks"][1]["textColor"], "red");
+    assert_eq!(parent["blocks"][1]["linkIcon"], "🔴");
+    assert_eq!(parent["blocks"][2]["textColor"], "green");
+    assert_eq!(parent["blocks"][2]["linkIcon"], "🟢");
+}

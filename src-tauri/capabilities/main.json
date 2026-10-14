@@ -1,11 +1,13 @@
 {
   "identifier": "main",
-  "description": "主窗口通过共享核心读写笔记，并访问用户选择的导入和导出文件。",
+  "description": "主窗口和独立页面窗口通过共享核心读写笔记，并访问用户选择的导入和导出文件。",
   "windows": [
-    "main"
+    "main",
+    "note-*"
   ],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
     "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-read-file",

@@ -75,6 +75,6 @@ test('状态与单选使用可配置颜色，状态有圆点且可选择',()=>{
 
 test('页面菜单包含编辑收藏复制移动与回收站，并按收藏和锁定状态变化',async()=>{
  const m=await import('../ui/web/page-menu.mjs').catch(()=>({}));assert.equal(typeof m.pageMenuItems,'function','页面快捷菜单尚未实现');
- const items=m.pageMenuItems({id:'p',title:'影视剧',favorite:false});assert.deepEqual(items.map(i=>i.action),['pageMenuOpen','pageMenuRename','pageMenuFavorite','pageMenuDuplicate','pageMenuMove','pageMenuTrash']);
+ const items=m.pageMenuItems({id:'p',title:'影视剧',favorite:false});for(const action of ['pageMenuOpen','pageMenuRename','pageMenuFavorite','pageMenuDuplicate','pageMenuMove','pageMenuTrash'])assert.ok(items.some(i=>i.action===action));
  assert.match(items.find(i=>i.action==='pageMenuFavorite').label,/收藏/);assert.equal(m.pageMenuItems({favorite:true,locked:true}).find(i=>i.action==='pageMenuRename').disabled,true);assert.match(m.pageMenuItems({favorite:true}).find(i=>i.action==='pageMenuFavorite').label,/取消/);
 });

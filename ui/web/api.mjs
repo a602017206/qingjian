@@ -1,3 +1,4 @@
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
@@ -25,3 +26,10 @@ export async function saveFile(name,data){
 }
 
 export async function openExternal(url){if(native())await openUrl(url);else window.open(url,'_blank','noopener,noreferrer');}
+
+export async function openPageWindow(url,title){
+ if(!native()){const opened=window.open(url,'_blank','popup,width=1200,height=850');if(!opened)throw new Error(t('newWindowFailed'));opened.opener=null;return;}
+ const parsed=new URL(url);if(parsed.origin!==location.origin)throw new Error(t('newWindowFailed'));
+ const win=new WebviewWindow('note-'+crypto.randomUUID(),{url:parsed.pathname+parsed.search,title: t('app')+' · '+title,width:1200,height:850,minWidth:360,minHeight:540});
+ await new Promise((resolve,reject)=>{win.once('tauri://created',resolve);win.once('tauri://error',()=>reject(new Error(t('newWindowFailed'))));});
+}

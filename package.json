@@ -25,7 +25,8 @@
     "test:e2e:property-menu": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-menu.mjs && node tests/e2e/property-context.mjs",
     "test:e2e:property-types": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-types.mjs",
     "test:e2e:database-interaction": "cargo build --locked -p notebook-core --bin server && node tests/e2e/database-interaction.mjs",
-    "test:e2e:property-anchor": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-anchor.mjs"
+    "test:e2e:property-anchor": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-anchor.mjs",
+    "test:e2e:page-links": "cargo build --locked -p notebook-core --bin server && node tests/e2e/page-links.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.0",

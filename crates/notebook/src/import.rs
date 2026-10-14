@@ -489,19 +489,51 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                 }
             }
             remap_file_properties(&mut p, &asset_ids);
+            remap_icon(&mut p, "icon", &asset_ids);
+            if let Some(blocks) = p["blocks"].as_array_mut() {
+                for block in blocks {
+                    remap_icon(block, "linkIcon", &asset_ids);
+                }
+            }
         } else if let Some(html) = html_pages.get(n) {
             p["title"] = json!(html.title);
             p["importNotionId"] = json!(html.source_id);
             p["importProperties"] = json!(html.properties);
             p["importIcon"] = json!(html.icon);
-            if !html.icon.is_empty()
+            if let Some(asset) = asset_ids.get(&resolve(n, &html.icon)) {
+                p["icon"] = json!(format!("asset:{asset}"));
+            } else if !html.icon.is_empty()
                 && html.icon.chars().count() <= 16
                 && !html.icon.starts_with("http")
+                && !html.icon.contains('/')
             {
                 p["icon"] = json!(html.icon);
             }
             let body = rewrite(&html.body, n, &page_ids, &asset_ids);
             p["blocks"] = json!(crate::markdown::parse(&body));
+            let mut styled_blocks = HashSet::new();
+            for link in &html.links {
+                let original = text(link, "text");
+                let target = rewrite(original, n, &page_ids, &asset_ids);
+                if !target.contains("](page:") {
+                    continue;
+                }
+                if let Some(blocks) = p["blocks"].as_array_mut() {
+                    for (index, block) in blocks.iter_mut().enumerate() {
+                        if text(block, "text").trim() == target && styled_blocks.insert(index) {
+                            block["textColor"] = link["textColor"].clone();
+                            block["backgroundColor"] = link["backgroundColor"].clone();
+                            let glyph = text(link, "icon");
+                            if let Some(asset) = asset_ids.get(&resolve(n, glyph)) {
+                                block["linkIcon"] = json!(format!("asset:{asset}"));
+                            } else if glyph.chars().count() <= 16 && !glyph.contains('/') {
+                                block["linkIcon"] = json!(glyph);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
             if let Some(db) = &html.database {
                 p["database"] = db.clone();
                 if html.icon.is_empty() {
@@ -618,6 +650,8 @@ fn html_markdown_mode(input: &str, skip_collections: bool) -> String {
                 let tag = e.name();
                 if e.classes().any(|c| {
                     c == "property-icon"
+                        || c == "icon"
+                        || c == "page-icon"
                         || c == "status-dot"
                         || (skip_collections && c == "collection-content")
                 }) {
@@ -799,5 +833,12 @@ fn remap_file_properties(page: &mut Value, assets: &HashMap<String, String>) {
                 }
             }
         }
+    }
+}
+
+fn remap_icon(value: &mut Value, key: &str, assets: &HashMap<String, String>) {
+    let old = text(value, key).strip_prefix("asset:").unwrap_or("");
+    if let Some(new) = assets.get(&format!("assets/{old}")) {
+        value[key] = json!(format!("asset:{new}"));
     }
 }

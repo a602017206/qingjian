@@ -11,6 +11,7 @@ use std::{
 pub(crate) struct Page {
     pub title: String,
     pub icon: String,
+    pub links: Vec<Value>,
     pub source_id: String,
     pub body: String,
     pub properties: Vec<Value>,
@@ -28,8 +29,9 @@ fn clean_text(node: NodeRef<Node>, out: &mut String) {
                 "script", "style", "head", "iframe", "object", "noscript", "svg",
             ]
             .contains(&e.name())
-                || e.classes()
-                    .any(|c| c == "property-icon" || c == "status-dot")
+                || e.classes().any(|c| {
+                    c == "property-icon" || c == "status-dot" || c == "icon" || c == "page-icon"
+                })
             {
                 return;
             }
@@ -215,8 +217,89 @@ pub(crate) fn parse(input: &str) -> Option<Page> {
                 .next()
                 .and_then(|e| e.value().attr("data-emoji"))
         })
-        .unwrap_or("")
-        .to_owned();
+        .map(str::to_owned)
+        .or_else(|| {
+            article
+                .select(&sel(
+                    "header .page-header-icon img[src], header img.page-icon[src]",
+                ))
+                .next()
+                .and_then(|e| e.value().attr("src"))
+                .map(str::to_owned)
+        })
+        .or_else(|| {
+            article
+                .select(&sel("header .page-header-icon, header .page-icon"))
+                .next()
+                .map(|e| e.text().collect::<String>().trim().to_owned())
+        })
+        .unwrap_or_default();
+    let mut links = vec![];
+    if let Some(content) = article.select(&sel(".page-body")).next() {
+        for anchor in content.select(&sel("a[href]")) {
+            let container = anchor
+                .ancestors()
+                .filter_map(ElementRef::wrap)
+                .find(|e| {
+                    matches!(
+                        e.value().name(),
+                        "p" | "figure" | "li" | "h1" | "h2" | "h3" | "div" | "blockquote"
+                    )
+                })
+                .unwrap_or(anchor);
+            if plain(container) != plain(anchor) {
+                continue;
+            }
+            let link_text = crate::import::html_body_markdown(&container.inner_html(), false)
+                .trim()
+                .to_owned();
+            let figure = anchor
+                .ancestors()
+                .filter_map(ElementRef::wrap)
+                .find(|e| e.value().classes().any(|c| c == "link-to-page"))
+                .unwrap_or(anchor);
+            let mut foreground = String::new();
+            let mut background = String::new();
+            for node in [figure, container, anchor] {
+                for class in node.value().classes() {
+                    let value = class
+                        .strip_prefix("block-color-")
+                        .or_else(|| class.strip_prefix("highlight-"));
+                    if let Some(value) = value {
+                        let (color, bg) = value
+                            .strip_suffix("_background")
+                            .map(|c| (c, true))
+                            .unwrap_or((value, false));
+                        if [
+                            "gray", "brown", "orange", "yellow", "green", "blue", "purple", "pink",
+                            "red",
+                        ]
+                        .contains(&color)
+                        {
+                            if bg {
+                                background = color.to_owned()
+                            } else {
+                                foreground = color.to_owned()
+                            }
+                        }
+                    }
+                }
+            }
+            let glyph = anchor
+                .select(&sel("img.icon[src], img.page-icon[src]"))
+                .next()
+                .and_then(|e| e.value().attr("src"))
+                .map(str::to_owned)
+                .or_else(|| {
+                    anchor
+                        .select(&sel(".icon,.page-icon"))
+                        .next()
+                        .map(|e| e.text().collect::<String>().trim().to_owned())
+                })
+                .unwrap_or_default();
+            links.push(json!({"href":anchor.value().attr("href").unwrap_or(""),"label":plain(anchor),"text":link_text,"icon":glyph,"textColor":foreground,"backgroundColor":background}));
+        }
+    }
     let mut properties = vec![];
     for row in article.select(&sel("table.properties tr")) {
         let Some(header) = row.select(&sel("th")).next() else {
@@ -363,6 +446,7 @@ pub(crate) fn parse(input: &str) -> Option<Page> {
     Some(Page {
         title,
         icon,
+        links,
         source_id: source_id(article.value().attr("id").unwrap_or("")),
         body,
         properties,
