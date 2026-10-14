@@ -1,0 +1,83 @@
+import { clone,escapeHTML as e } from './core.mjs';
+import { renderCell } from './database-ui.mjs';
+import { icon } from './icons.mjs';
+import { t } from './i18n.mjs';
+
+export function linkedRecord(page,pages){
+ if(!page?.parentId)return null;
+ const owner=pages.find(p=>p.id===page.parentId&&!p.deleted&&p.database);
+ if(!owner)return null;
+ const rows=owner.database.rows.filter(r=>r.pageId===page.id);
+ return rows.length===1?{owner,row:rows[0]}:null;
+}
+export function recordValueDraft(page,pages,rowId,columnId,value){
+ const linked=linkedRecord(page,pages);
+ if(!linked||linked.row.id!==rowId||page.locked||linked.owner.locked||page.deleted)throw new Error(t('cannotModify'));
+ const column=linked.owner.database.columns.find(c=>c.id===columnId);
+ if(!column||column.id===linked.owner.database.columns[0]?.id||['formula','rollup'].includes(column.type))throw new Error(t('cannotModify'));
+ const owner=clone(linked.owner);owner.database.rows.find(r=>r.id===rowId).values[columnId]=value;return owner;
+}
+function originalProperties(page,linked){
+ const properties=new Map((page.importProperties||[]).map(p=>[p.name,String(p.raw??'')]));
+ for(const column of linked.owner.database.columns){
+  const raw=linked.row.sourceValues?.[column.id];
+  if(!properties.has(column.name)&&raw!=null)properties.set(column.name,String(raw));
+ }
+ return properties;
+}
+export function visibleRecordBlocks(page,linked){
+ const blocks=page.blocks||[];
+ if(!linked||!page.importSource)return blocks;
+ const properties=originalProperties(page,linked);
+ const first=blocks[0];if(first?.type!=='paragraph')return blocks;
+ const lines=first.text.split('\n').filter(line=>line.trim());
+ if(!lines.length)return blocks;
+ const names=new Set();
+ for(const line of lines){
+  const match=line.match(/^([^:：]+)[:：]\s*(.*)$/);
+  if(!match||names.has(match[1].trim())||properties.get(match[1].trim())?.trim()!==match[2].trim())return blocks;
+  names.add(match[1].trim());
+ }
+ const required=(page.importProperties?.length? page.importProperties.map(p=>p.name):linked.owner.database.columns.slice(1).filter(c=>String(linked.row.sourceValues?.[c.id]??'').trim()).map(c=>c.name));
+ if(!required.length||required.some(name=>!names.has(name)))return blocks;
+ return blocks.slice(1);
+}
+function propertyGlyph(type){
+ if(type==='number')return '<span class="property-number-icon" aria-hidden="true">#</span>';
+ return icon(({date:'clock',status:'sun',select:'down',multiselect:'list',checkbox:'check',relation:'attach',url:'attach',formula:'git',rollup:'git'})[type]||'page',16);
+}
+export function renderRecordProperties(page,pages,disabled=false){
+ const linked=linkedRecord(page,pages);if(!linked)return '';
+ const {owner,row}=linked,locked=disabled||page.locked||owner.locked;
+ const columns=owner.database.columns.slice(1);
+ const order=(page.importProperties||[]).map(p=>p.name);
+ columns.sort((a,b)=>(order.includes(a.name)?order.indexOf(a.name):order.length)-(order.includes(b.name)?order.indexOf(b.name):order.length));
+ return `<section class="record-page-properties" aria-label="${t('recordProperties')}">${columns.map(column=>{
+  let cell=renderCell(owner,row,column,pages,locked);
+  cell=cell.replace('aria-label=',`placeholder="${t('emptyProperty')}" aria-label=`).replace(`<option value="">${t('none')}</option>`,`<option value="">${t('emptyProperty')}</option>`).replace(t('chooseValues'),t('emptyProperty'));
+  return `<div class="record-property-row" data-property="${e(column.id)}"><span class="record-property-name" title="${e(t(column.type==='number'?'numberProperty':column.type))}">${propertyGlyph(column.type)}<span>${e(column.name)}</span></span><div class="record-property-value">${cell}${!row.values[column.id]&&column.type==='date'?`<span class="property-empty">${t('emptyProperty')}</span>`:''}</div></div>`;
+ }).join('')}</section>`;
+}
+
+export class RecordDraftQueue {
+ constructor({save,onSaved=()=>{},onChange=()=>{}}){this.save=save;this.onSaved=onSaved;this.onChange=onChange;this.page=null;this.dirty=false;this.saving=null;this.seq=0;this.error='';this.workspaceId='';this.childId='';}
+ edit(workspaceId,child,pages,rowId,columnId,value){
+  if(this.dirty&&(workspaceId!==this.workspaceId||child.id!==this.childId))throw new Error(t('unsavedWarning'));
+  const context=pages.map(p=>this.page&&(this.dirty||this.saving)&&p.id===this.page.id?this.page:p);
+  this.page=recordValueDraft(child,context,rowId,columnId,value);this.workspaceId=workspaceId;this.childId=child.id;this.dirty=true;this.seq++;this.error='';this.onChange();
+ }
+ restore(workspaceId,childId,page){this.page=clone(page);this.workspaceId=workspaceId;this.childId=childId;this.dirty=true;this.seq++;this.error='';this.onChange();}
+ clear(){if(this.dirty||this.saving)throw new Error(t('unsavedWarning'));this.onChange();this.page=null;this.workspaceId='';this.childId='';this.error='';}
+ flush(){
+  if(this.flushing)return this.flushing;
+  if(!this.dirty||!this.page)return Promise.resolve();
+  this.flushing=this.drain().finally(()=>{this.flushing=null;});return this.flushing;
+ }
+ async drain(){while(this.dirty){
+  const page=clone(this.page),seq=this.seq;
+  this.saving=this.save(this.workspaceId,page);this.onChange();
+  try{
+   const saved=await this.saving;this.page.revision=saved.revision;this.page.updatedAt=saved.updatedAt;this.page.createdAt=saved.createdAt;this.onSaved(saved);this.dirty=this.seq!==seq;this.error='';
+  }catch(error){this.error=error.message;throw error;}finally{this.saving=null;this.onChange();}
+ }}
+}
