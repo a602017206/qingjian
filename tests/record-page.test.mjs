@@ -74,3 +74,7 @@ test('旧文本导入在属性重命名或删除后仍按原始字段核对快�
 test('为空时隐藏区分空数字与真实零',()=>{
  const owner=structuredClone(parent);owner.database.propertyLayout={visibility:{priority:'nonempty'}};owner.database.rows[0].values.priority='';assert.ok(!renderRecordProperties(child,[owner]).includes('data-property="priority"'));owner.database.rows[0].values.priority='0';assert.ok(renderRecordProperties(child,[owner]).includes('data-property="priority"'));
 });
+
+test('没有独立子页的数据库行共用字段顺序、可见性和编辑控件',()=>{
+ const owner={id:'owner',parentId:'',database:{columns:[{id:'name',name:'名称',type:'text'},{id:'visible',name:'说明',type:'text'},{id:'hidden',name:'隐藏属性',type:'text'}],rows:[],propertyLayout:{order:['visible','hidden'],visibility:{hidden:'hidden'}}}},row={id:'r',values:{name:'记录',visible:'原内容',hidden:'仍保留'}};owner.database.rows=[row];const html=renderRecordProperties(owner,[owner],false,{owner,row});assert.match(html,/原内容/);assert.ok(!html.includes('隐藏属性'));assert.ok(!html.includes('data-column="name"'));
+});

@@ -62,8 +62,8 @@ export function visibleRecordBlocks(page,linked){
  return blocks.slice(1);
 }
 const propertyGlyph=propertyTypeIcon;
-export function renderRecordProperties(page,pages,disabled=false){
- const linked=linkedRecord(page,pages);if(!linked)return '';
+export function renderRecordProperties(page,pages,disabled=false,record=null){
+ const linked=record||linkedRecord(page,pages);if(!linked)return '';
  const {owner,row}=linked,locked=disabled||page.locked||owner.locked;
  const columns=recordPropertyColumns(page,owner).filter(column=>{
   const visibility=owner.database.propertyLayout?.visibility?.[column.id];if(visibility==='hidden')return false;

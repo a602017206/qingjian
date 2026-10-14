@@ -25,7 +25,7 @@ try {
  await page.locator('.block-render').first().click();await page.locator('.block-input').fill('这是跨平台保存的正文，关联 [[阅读清单]]。');
  await page.keyboard.press('ControlOrMeta+s');await page.waitForTimeout(250);await page.locator('.sidebar [data-action="home"]').click();
  await page.reload();await page.waitForSelector('.home-heading');await page.locator('#home-search').fill('跨平台保存');await page.waitForTimeout(200);assert.equal(await page.locator('.page-row').count(),1);
- await page.locator('.page-row [data-action="page"]').click();assert.equal(await page.locator('#page-title').inputValue(),'中文持久化笔记');assert.match(await page.locator('.editor').innerText(),/跨平台保存/);
+ await page.locator('.page-row [data-action="page"]').click();assert.equal(await page.locator('#page-title').inputValue(),'中文持久化笔记');assert.match(await page.locator('.editor:not(.background-editor)').innerText(),/跨平台保存/);
  // 待办块、版本历史与回收站。
  await page.locator('[data-action="addBlock"]').click();await page.locator('[data-type="todo"]').click();await page.locator('.block-input').fill('验证待办');await page.locator('#page-title').click();await page.locator('.todo-check').check();
  await page.locator('[data-action="commit"]').click();await page.waitForFunction(()=>!document.querySelector('[data-action="commit"]')?.disabled);await page.locator('[data-action="history"]').click();await page.waitForSelector('.history-list');assert.equal(await page.locator('.history-list>div').count(),1);await page.locator('.modal-header [data-action="closeModal"]').click();
@@ -34,7 +34,7 @@ try {
  await page.locator('.topbar [data-action="more"]').click();await page.locator('[data-action="delete"]').click();await page.locator('[data-action="confirmDelete"]').click();await page.waitForSelector('.home-heading');await page.locator('.sidebar-bottom>[data-action="trash"]').click();await page.locator('[data-action="restorePage"]').click();await page.waitForFunction(()=>document.querySelectorAll('.trash-list>div').length===0);
  // 数据库三种视图、记录和属性编辑。
  await page.locator('.main-nav [data-action="templates"]').click();await page.locator('[data-template="project"]').click();await page.waitForSelector('.database-table');
- await page.locator('.database-toolbar [data-action="newRow"]').click();await page.locator('[data-cell][data-column="name"]').fill('移动端任务');await page.locator('[data-cell][data-column="status"]').selectOption('进行中');
+ await page.locator('.database-toolbar [data-action="newRow"]').click();await page.locator('[data-cell][data-column="name"]').fill('移动端任务');await page.locator('.option-select-trigger[data-column="status"]').click();await page.locator('[data-option-value="进行中"]').click();
  await page.locator('[data-view="board"]').click();assert.match(await page.locator('.board-view').innerText(),/进行中/);assert.equal(await page.locator('.board-card').count(),1);
  await page.locator('[data-view="list"]').click();assert.equal(await page.locator('.database-list [data-column="name"]').inputValue(),'移动端任务');
  await page.locator('[data-view="table"]').click();await page.locator('[data-action="addColumn"]').click();await page.locator('#column-form [name="name"]').fill('估算');await page.locator('.property-type-trigger').click();await page.locator('[data-property-type="number"]').click();await page.locator('#column-form [type="submit"]').click();assert.equal(await page.locator('.database-table th').count(),5);

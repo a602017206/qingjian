@@ -16,8 +16,8 @@ try{
  await page.locator('.workspace-switch').click();await page.locator('[data-action="newWorkspace"]').click();await page.locator('#workspace-form [name="name"]').fill('子页属性验证');await page.locator('#workspace-form [type="submit"]').click();await page.waitForFunction(()=>document.querySelector('.workspace-switch strong')?.textContent==='子页属性验证');workspaceId=(await api('bootstrap')).activeId;
  await page.locator('.sidebar-bottom [data-action="import"]').click();const chooser=page.waitForEvent('filechooser');await page.locator('[data-action="chooseImport"]').click();await (await chooser).setFiles('tests/fixtures/notion-html.zip');await page.waitForSelector('.import-success');await page.locator('.modal-header [data-action="closeModal"]').click();
  await page.locator('.tree-entry .page-nav').click();const parentId=await page.locator('.tree-entry .page-nav').getAttribute('data-id');await page.locator('.db-name-cell [data-action="openRow"]').first().click();
- const panel=page.locator('.record-page-properties');await panel.waitFor();assert.match(await panel.innerText(),/评分/);assert.ok(await panel.locator('.option-blue').count());assert.ok(await panel.locator('.option-green').count());assert.match(await panel.innerText(),/空白/);
- assert.ok(!(await page.locator('.editor').innerText()).includes('评分: 8'));assert.match(await page.locator('.editor').innerText(),/正文一/);
+ const panel=page.locator('.record-page-properties');await panel.waitFor();assert.match(await panel.innerText(),/评分/);assert.ok(await panel.locator('.option-blue').count());assert.ok(await panel.locator('.option-green').count());assert.equal(await panel.locator('.record-property-row').count(),4);
+ assert.ok(!(await page.locator('.editor:not(.background-editor)').innerText()).includes('评分: 8'));assert.match(await page.locator('.editor:not(.background-editor)').innerText(),/正文一/);
  let pages=await api('pages'),parent=pages.find(p=>p.id===parentId),childId=parent.database.rows[0].pageId;const parentNav=()=>page.locator(`.tree-entry .page-nav[data-id="${parentId}"]`);const childNav=()=>page.locator(`.tree-entry .page-nav[data-id="${childId}"]`);
 
 

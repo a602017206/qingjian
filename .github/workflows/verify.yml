@@ -53,6 +53,7 @@ jobs:
           npm run test:e2e:record-page
           npm run test:e2e:property-menu
           npm run test:e2e:property-types
+          npm run test:e2e:database-interaction
       - name: 保存界面验证结果
         if: always()
         uses: actions/upload-artifact@v4
