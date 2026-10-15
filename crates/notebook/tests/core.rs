@@ -1515,3 +1515,129 @@ fn repeated_html_page_links_keep_their_individual_styles() {
     assert_eq!(parent["blocks"][2]["textColor"], "green");
     assert_eq!(parent["blocks"][2]["linkIcon"], "🟢");
 }
+
+#[test]
+fn pasted_markdown_export_preserves_headings_lists_quotes_and_fence_content() {
+    use base64::Engine;
+    use std::io::Read;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "文档粘贴导出");
+    s.dispatch("save",json!({"workspaceId":w,"page":{"title":"粘贴文档","blocks":[{"id":"heading","type":"h6","text":"六级标题"},{"id":"number","type":"number","order":3,"text":"第三项"},{"id":"nested","type":"bullet","depth":1,"text":"子项"},{"id":"quote","type":"quote","quoteDepth":2,"text":"第一行\n第二行"},{"id":"code","type":"code","language":"text","text":"first\n```\nsecond\n````\nlast"}]}})).unwrap();
+    let exported = s.dispatch("export", json!({"workspaceId":w})).unwrap();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(exported["data"].as_str().unwrap())
+        .unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut markdown = String::new();
+    for index in 0..zip.len() {
+        let mut file = zip.by_index(index).unwrap();
+        if file.name().ends_with(".md") {
+            file.read_to_string(&mut markdown).unwrap();
+            break;
+        }
+    }
+    assert!(markdown.contains("###### 六级标题"));
+    assert!(markdown.contains("3. 第三项"));
+    assert!(markdown.contains("    - 子项"));
+    assert!(markdown.contains("> > 第一行\n> > 第二行"));
+    assert!(markdown.contains("`````text\nfirst\n```\nsecond\n````\nlast\n`````"));
+}
+
+#[test]
+fn markdown_file_roundtrip_keeps_long_and_tilde_fences_and_following_text() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "围栏往返");
+    for (index, source) in [
+        "###### 六级标题\n\n`````text\nfirst\n```\nsecond\n````\nlast\n`````\n\n后续正文",
+        "~~~lang`info\nfirst\n```\n~~~ not closing\nlast\n~~~\n\n后续正文",
+        "   ````text\n   first\n   ```\n   last\n   ````\n\n后续正文",
+    ]
+    .iter()
+    .enumerate()
+    {
+        s.dispatch("import",json!({"workspaceId":w,"name":format!("fence{index}.md"),"data":base64::engine::general_purpose::STANDARD.encode(source)})).unwrap();
+        let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+        let page = pages
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["title"] == format!("fence{index}"))
+            .unwrap();
+        let blocks = page["blocks"].as_array().unwrap();
+        let code = blocks.iter().find(|b| b["type"] == "code").unwrap();
+        let expected = [
+            "first\n```\nsecond\n````\nlast",
+            "first\n```\n~~~ not closing\nlast",
+            "first\n```\nlast",
+        ][index];
+        assert_eq!(code["text"], expected);
+        assert_eq!(blocks.last().unwrap()["text"], "后续正文");
+        if index == 0 {
+            assert_eq!(blocks[0]["type"], "h6");
+        }
+        let exported = s.dispatch("export", json!({"workspaceId":w})).unwrap();
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(exported["data"].as_str().unwrap())
+            .unwrap();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        let mut exported_markdown = String::new();
+        for file_index in 0..zip.len() {
+            let mut file = zip.by_index(file_index).unwrap();
+            if file.name() == format!("markdown/{}.md", page["id"].as_str().unwrap()) {
+                use std::io::Read;
+                file.read_to_string(&mut exported_markdown).unwrap();
+                break;
+            }
+        }
+        assert!(!exported_markdown.is_empty());
+        let other = create(&mut s, "文本恢复");
+        s.dispatch("import",json!({"workspaceId":other,"name":"restored.md","data":base64::engine::general_purpose::STANDARD.encode(exported_markdown)})).unwrap();
+        let restored = s.dispatch("pages", json!({"workspaceId":other})).unwrap();
+        assert_eq!(
+            restored[0]["blocks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|b| b["type"] == "code")
+                .unwrap()["text"],
+            expected
+        );
+        assert_eq!(
+            restored[0]["blocks"].as_array().unwrap().last().unwrap()["text"],
+            "后续正文"
+        );
+    }
+}
+
+#[test]
+fn complex_markdown_import_keeps_original_container_order() {
+    use base64::Engine;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "复杂文档");
+    for (index, source) in [
+        "- 父项\n  > 引用正文\n  >\n  > - 引用子项\n\n- 第二项",
+        "> - 父项\n>   - 子项",
+        "1000. 父项\n      - 子项",
+        "> 第一行\n>\n>> 二级",
+        "[地址][ref]\n\n[ref]: https://example.com",
+    ]
+    .iter()
+    .enumerate()
+    {
+        s.dispatch("import",json!({"workspaceId":w,"name":format!("complex{index}.md"),"data":base64::engine::general_purpose::STANDARD.encode(source)})).unwrap();
+        let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+        let page = pages
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["title"] == format!("complex{index}"))
+            .unwrap();
+        assert_eq!(page["blocks"].as_array().unwrap().len(), 1);
+        assert_eq!(page["blocks"][0]["markdownDocument"], true);
+        assert_eq!(page["blocks"][0]["text"], *source);
+    }
+}

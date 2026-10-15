@@ -26,13 +26,15 @@
     "test:e2e:property-types": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-types.mjs",
     "test:e2e:database-interaction": "cargo build --locked -p notebook-core --bin server && node tests/e2e/database-interaction.mjs",
     "test:e2e:property-anchor": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-anchor.mjs",
-    "test:e2e:page-links": "cargo build --locked -p notebook-core --bin server && node tests/e2e/page-links.mjs"
+    "test:e2e:page-links": "cargo build --locked -p notebook-core --bin server && node tests/e2e/page-links.mjs",
+    "test:e2e:markdown-paste": "cargo build --locked -p notebook-core --bin server && node tests/e2e/markdown-paste.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.0",
     "@tauri-apps/plugin-dialog": "~2.8.0",
     "@tauri-apps/plugin-fs": "~2.7.0",
-    "@tauri-apps/plugin-opener": "~2.5.0"
+    "@tauri-apps/plugin-opener": "~2.5.0",
+    "markdown-it": "15.0.2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "~2.12.0",
