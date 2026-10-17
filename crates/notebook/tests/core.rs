@@ -1641,3 +1641,80 @@ fn complex_markdown_import_keeps_original_container_order() {
         assert_eq!(page["blocks"][0]["text"], *source);
     }
 }
+
+fn named_view_database() -> serde_json::Value {
+    json!({"columns":[{"id":"name","name":"名称","type":"text"},{"id":"status","name":"状态","type":"status","options":["进行中","已完成"]},{"id":"amount","name":"金额","type":"number"}],"rows":[{"id":"record","values":{"name":"原记录","status":"进行中","amount":"0"}}],"views":[{"id":"view","name":"进行中","type":"table","filter":{"conjunction":"and","rules":[{"id":"status-rule","propertyId":"status","operator":"eq","value":"进行中"}]},"sorts":[{"propertyId":"amount","direction":"desc"}],"hiddenColumnIds":["amount"],"groupColumnId":"status","dateColumnId":""}]})
+}
+#[test]
+fn named_views_reject_malformed_configuration_without_partial_save() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "视图校验");
+    let mut cases = vec![];
+    for (key, value) in [
+        ("type", json!("script")),
+        ("name", json!("")),
+        ("sorts", json!([{"propertyId":"missing","direction":"asc"}])),
+        ("hiddenColumnIds", json!(["name"])),
+        ("groupColumnId", json!("amount")),
+    ] {
+        let mut db = named_view_database();
+        db["views"][0][key] = value;
+        cases.push(db);
+    }
+    for (key, value) in [("propertyId", json!("missing")), ("operator", json!("gt"))] {
+        let mut db = named_view_database();
+        db["views"][0]["filter"]["rules"][0][key] = value;
+        cases.push(db);
+    }
+    let mut db = named_view_database();
+    let duplicate = db["views"][0].clone();
+    db["views"].as_array_mut().unwrap().push(duplicate);
+    cases.push(db);
+    let mut db = named_view_database();
+    db["views"][0]["filter"]["rules"][0] =
+        json!({"id":"number","propertyId":"amount","operator":"gt","value":"文字"});
+    cases.push(db);
+    for db in cases {
+        assert!(s
+            .dispatch(
+                "save",
+                json!({"workspaceId":w,"page":{"title":"应拒绝","blocks":[],"database":db}})
+            )
+            .is_err());
+    }
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
+#[test]
+fn named_views_survive_restart_and_structured_backup() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "视图持久化");
+    let db = named_view_database();
+    s.dispatch(
+        "save",
+        json!({"workspaceId":w,"page":{"title":"视图页面","blocks":[],"database":db}}),
+    )
+    .unwrap();
+    drop(s);
+    let mut s = Store::new(d.path()).unwrap();
+    let pages = s.dispatch("pages", json!({"workspaceId":w})).unwrap();
+    assert_eq!(pages[0]["database"]["views"], db["views"]);
+    let exported = s.dispatch("export", json!({"workspaceId":w})).unwrap();
+    let other = create(&mut s, "视图恢复");
+    s.dispatch(
+        "import",
+        json!({"workspaceId":other,"name":"视图.zip","data":exported["data"]}),
+    )
+    .unwrap();
+    let restored = s.dispatch("pages", json!({"workspaceId":other})).unwrap();
+    assert_eq!(restored[0]["database"]["views"], db["views"]);
+    assert_eq!(restored[0]["database"]["rows"].as_array().unwrap().len(), 1);
+}

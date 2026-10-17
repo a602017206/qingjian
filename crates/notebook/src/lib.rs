@@ -6,6 +6,7 @@ mod import;
 mod markdown;
 mod notion;
 mod property;
+mod views;
 
 use base64::Engine;
 use chrono::Utc;
@@ -140,6 +141,7 @@ pub(crate) fn validate_page(page: &Value) -> Result<()> {
             }
         }
         crate::property::validate_database(db)?;
+        crate::views::validate(db)?;
         let mut row_ids = HashSet::new();
         for row in rows {
             if !row_ids.insert(text(row, "id")) {
