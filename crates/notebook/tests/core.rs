@@ -1718,3 +1718,74 @@ fn named_views_survive_restart_and_structured_backup() {
     assert_eq!(restored[0]["database"]["views"], db["views"]);
     assert_eq!(restored[0]["database"]["rows"].as_array().unwrap().len(), 1);
 }
+
+#[test]
+fn nested_blocks_reject_invalid_parents_and_toggle_state_without_partial_save() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "内容块结构校验");
+    for blocks in [
+        json!([{"id":"a","type":"paragraph","text":"甲","parentId":"missing"}]),
+        json!([{"id":"a","type":"paragraph","text":"甲","parentId":"a"}]),
+        json!([{"id":"a","type":"paragraph","text":"甲"},{"id":"b","type":"paragraph","text":"乙"},{"id":"c","type":"paragraph","text":"丙","parentId":"a"}]),
+        json!([{"id":"a","type":"code","text":"甲"},{"id":"b","type":"paragraph","text":"乙","parentId":"a"}]),
+        json!([{"id":"a","type":"toggle","text":"甲","collapsed":"false"}]),
+    ] {
+        assert!(s
+            .dispatch(
+                "save",
+                json!({"workspaceId":w,"page":{"title":"无效结构","blocks":blocks}})
+            )
+            .is_err());
+    }
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}
+#[test]
+fn nested_toggle_blocks_survive_restart_backup_and_readable_export() {
+    use base64::Engine;
+    use std::io::Read;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "嵌套备份");
+    let blocks = json!([{"id":"a","type":"toggle","text":"父标题","collapsed":true},{"id":"b","type":"paragraph","text":"子内容","parentId":"a"},{"id":"c","type":"code","text":"literal\n```","language":"text","parentId":"b"},{"id":"d","type":"paragraph","text":"尾部正文"}]);
+    let saved = s
+        .dispatch(
+            "save",
+            json!({"workspaceId":w,"page":{"title":"嵌套页面","blocks":blocks}}),
+        )
+        .unwrap();
+    drop(s);
+    let mut s = Store::new(d.path()).unwrap();
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w})).unwrap()[0]["blocks"],
+        blocks
+    );
+    let exported = s.dispatch("export", json!({"workspaceId":w})).unwrap();
+    let other = create(&mut s, "嵌套恢复");
+    s.dispatch(
+        "import",
+        json!({"workspaceId":other,"name":"嵌套.zip","data":exported["data"]}),
+    )
+    .unwrap();
+    let restored = s.dispatch("pages", json!({"workspaceId":other})).unwrap();
+    assert_eq!(restored[0]["blocks"], blocks);
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(exported["data"].as_str().unwrap())
+        .unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut markdown = String::new();
+    zip.by_name(&format!("markdown/{}.md", saved["id"].as_str().unwrap()))
+        .unwrap()
+        .read_to_string(&mut markdown)
+        .unwrap();
+    assert!(markdown.contains("- ▶ 父标题\n\n    - 子内容"));
+    assert!(markdown.contains("        ````text\n        literal\n        ```\n        ````"));
+    assert!(markdown.ends_with("尾部正文"));
+}

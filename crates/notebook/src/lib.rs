@@ -1,3 +1,4 @@
+mod blocks;
 mod cleanup;
 mod git;
 pub use git::configure_network;
@@ -88,6 +89,7 @@ pub(crate) fn validate_page(page: &Value) -> Result<()> {
                 return Err("内容块标识、类型或正文格式无效".into());
             }
         }
+        crate::blocks::layout(blocks)?;
     }
     if let Some(tags) = page.get("tags") {
         if !tags

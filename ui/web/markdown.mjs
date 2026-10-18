@@ -2,6 +2,7 @@ import MarkdownIt from 'markdown-it';
 import { uid,escapeHTML as e,safeURL } from './text.mjs';
 import { tableSerialize } from './database.mjs';
 import { t } from './i18n.mjs';
+import { blockTree } from './block-tree.mjs';
 
 const md=new MarkdownIt({html:false,breaks:true,linkify:true,typographer:false});
 md.validateLink=url=>!!safeURL(url);
@@ -58,7 +59,7 @@ export function parseMarkdown(value){
  }
  return blocks;
 }
-export function toMarkdown(blocks){
+function flatMarkdown(blocks){
  return blocks.map(block=>{
   const body=String(block.text??''),depth=level(block.depth),indent='    '.repeat(depth),quote='> '.repeat(level(block.quoteDepth)||(['quote','callout'].includes(block.type)?1:0));let value=body,marker='';
   if(/^h[1-6]$/.test(block.type))value='#'.repeat(Number(block.type[1]))+' '+body;
@@ -67,6 +68,13 @@ export function toMarkdown(blocks){
   else if(block.type==='code'){const info=String(block.language||'').replace(/[\r\n]/g,' '),char=info.includes('`')?'~':'`',runs=body.match(new RegExp(char+'+','g'))||[],fence=char.repeat(runs.reduce((max,run)=>Math.max(max,run.length+1),3));value=fence+info+'\n'+body+'\n'+fence;}
   else if(block.type==='divider')value='---';
   return value.split('\n').map((line,index)=>quote+indent+(marker?(index?' '.repeat(marker.length):marker):'')+line).join('\n');
+ }).join('\n\n');
+}
+export function toMarkdown(blocks){
+ if(!blocks.some(b=>b.parentId||b.type==='toggle'))return flatMarkdown(blocks);
+ const forest=blockTree(blocks),prefixes=new Map();return forest.entries.map(entry=>{const block=entry.block,kind=block.type,listed=['bullet','number','todo'].includes(kind);let body=flatMarkdown([{...block,depth:0}]);
+  if(kind==='toggle')body='- ▶ '+String(block.text||'').replaceAll('\n','\n  ');else if(!listed&&(entry.children.length||entry.parent&&kind==='paragraph'))body='- '+body.replaceAll('\n','\n  ');
+  const prefix=entry.parent?prefixes.get(entry.parentId):'',width=kind==='number'||kind==='todo'&&block.listType==='number'?Math.max(4,String(block.order||1).length+2):4;prefixes.set(block.id,prefix+' '.repeat(width));return body.split('\n').map(line=>prefix+line).join('\n');
  }).join('\n\n');
 }
 export function prepareMarkdownPaste(block,value,start=0,end=start){
@@ -80,7 +88,9 @@ export function prepareMarkdownPaste(block,value,start=0,end=start){
  const result=[];
  if(before)result.push({...block,text:before});
  result.push(...pasted);
- if(after)result.push({...block,id:uid(),text:after});
+ if(after){const tail={...block,id:uid(),text:after};delete tail.depth;delete tail.parentId;result.push(tail);}
  if(!before){result[0]={...appearance,...result[0],id:block.id};}
  return result;
 }
+
+export function isMarkdownSourceBlock(block){if(block.type==='code')return true;if(block.type!=='paragraph')return false;if(block.markdownDocument)return true;const env={},tokens=md.parse(String(block.text||''),env);return !!env.references||tokens.some(token=>['fence','code_block','heading_open','bullet_list_open','ordered_list_open','blockquote_open','table_open','hr'].includes(token.type));}

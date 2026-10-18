@@ -174,7 +174,7 @@ fn table_separator(line: &str) -> bool {
             value.len() >= 3 && value.bytes().all(|b| b == b'-')
         })
 }
-pub fn export(blocks: &Value) -> String {
+fn flat_export(blocks: &Value) -> String {
     blocks
         .as_array()
         .unwrap_or(&vec![])
@@ -255,4 +255,61 @@ pub fn export(blocks: &Value) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n\n")
+}
+
+pub fn export(value: &Value) -> String {
+    let Some(blocks) = value.as_array() else {
+        return String::new();
+    };
+    if !blocks
+        .iter()
+        .any(|b| !crate::text(b, "parentId").is_empty() || crate::text(b, "type") == "toggle")
+    {
+        return flat_export(value);
+    }
+    let Ok(positions) = crate::blocks::layout(blocks) else {
+        return flat_export(value);
+    };
+    let mut prefixes: Vec<String> = vec![];
+    let mut children = vec![false; blocks.len()];
+    for position in &positions {
+        if let Some(parent) = position.parent {
+            children[parent] = true;
+        }
+    }
+    let mut output = vec![];
+    for (index, block) in blocks.iter().enumerate() {
+        let mut leaf = block.clone();
+        leaf["depth"] = json!(0);
+        let kind = crate::text(block, "type");
+        let listed = ["bullet", "number", "todo"].contains(&kind);
+        let mut body = flat_export(&json!([leaf]));
+        if kind == "toggle" {
+            body = format!("- ▶ {}", crate::text(block, "text").replace('\n', "\n  "));
+        } else if !listed
+            && (children[index] || positions[index].parent.is_some() && kind == "paragraph")
+        {
+            body = format!("- {}", body.replace('\n', "\n  "));
+        }
+        let prefix = positions[index]
+            .parent
+            .map(|parent| prefixes[parent].clone())
+            .unwrap_or_default();
+        let width =
+            if kind == "number" || kind == "todo" && crate::text(block, "listType") == "number" {
+                format!("{}. ", block["order"].as_u64().unwrap_or(1))
+                    .len()
+                    .max(4)
+            } else {
+                4
+            };
+        prefixes.push(format!("{prefix}{}", " ".repeat(width)));
+        output.push(
+            body.split('\n')
+                .map(|line| format!("{prefix}{line}"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+    }
+    output.join("\n\n")
 }

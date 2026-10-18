@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+const menu=await import('../ui/web/block-menu.mjs').catch(()=>({}));
+test('斜线触发范围保留前后文，网址和代码不触发',()=>{assert.equal(typeof menu.slashTrigger,'function','尚未实现就地斜线菜单');assert.deepEqual(menu.slashTrigger('前文 /折叠 后文',6,'paragraph'),{start:3,end:6,query:'折叠'});assert.equal(menu.slashTrigger('https://example.com',19,'paragraph'),null);assert.equal(menu.slashTrigger('/折叠',3,'code'),null);assert.equal(menu.slashTrigger('普通文字',4,'paragraph'),null);});
+test('中文和常用指令可以搜索折叠标题及简易表格',()=>{assert.equal(typeof menu.searchBlockCommands,'function');assert.ok(menu.searchBlockCommands('折叠').some(c=>c.type==='toggle'));assert.ok(menu.searchBlockCommands('h2').some(c=>c.type==='h2'));assert.ok(menu.searchBlockCommands('表格').some(c=>c.type==='table'));assert.equal(menu.searchBlockCommands('不存在的指令').length,0);});
