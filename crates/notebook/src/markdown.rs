@@ -282,19 +282,27 @@ pub fn export(value: &Value) -> String {
         let mut leaf = block.clone();
         leaf["depth"] = json!(0);
         let kind = crate::text(block, "type");
+        let prefix = positions[index]
+            .parent
+            .map(|parent| prefixes[parent].clone())
+            .unwrap_or_default();
+        if ["columns", "column"].contains(&kind) {
+            prefixes.push(prefix);
+            continue;
+        }
         let listed = ["bullet", "number", "todo"].contains(&kind);
         let mut body = flat_export(&json!([leaf]));
         if kind == "toggle" {
             body = format!("- ▶ {}", crate::text(block, "text").replace('\n', "\n  "));
         } else if !listed
-            && (children[index] || positions[index].parent.is_some() && kind == "paragraph")
+            && (children[index]
+                || positions[index]
+                    .parent
+                    .is_some_and(|p| crate::text(&blocks[p], "type") != "column")
+                    && kind == "paragraph")
         {
             body = format!("- {}", body.replace('\n', "\n  "));
         }
-        let prefix = positions[index]
-            .parent
-            .map(|parent| prefixes[parent].clone())
-            .unwrap_or_default();
         let width =
             if kind == "number" || kind == "todo" && crate::text(block, "listType") == "number" {
                 format!("{}. ", block["order"].as_u64().unwrap_or(1))

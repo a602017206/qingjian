@@ -1,0 +1,26 @@
+import { clone,uid } from './text.mjs';
+import { t } from './i18n.mjs';
+import { blockTree,canContainBlock,normalizeBlockTree,renumberBlockTree } from './block-tree.mjs';
+import { applyBlockCommand } from './block-commands.mjs';
+import { pageColors } from './page-links.mjs';
+export function selectedBlockRoots(blocks,ids){const picked=new Set(ids),result=[];let end=-1;for(const entry of blockTree(blocks).entries)if(picked.has(entry.block.id)&&entry.block.type!=='column'&&entry.index>=end){result.push(entry.block.id);end=entry.end;}return result;}
+export function selectedBlockCoverage(blocks,ids){const forest=blockTree(blocks);return new Set(selectedBlockRoots(blocks,ids).flatMap(id=>{const node=forest.byId.get(id);return blocks.slice(node.index,node.end).map(b=>b.id);}));}
+export function removeSelectedBlocks(source,ids){const covered=selectedBlockCoverage(source,ids);return covered.size?renumberBlockTree(normalizeBlockTree(source).filter(b=>!covered.has(b.id)),source):source;}
+export function duplicateSelectedBlocks(source,ids){const roots=selectedBlockRoots(source,ids),forest=blockTree(source),blocks=normalizeBlockTree(source),resultIds=[];for(const id of [...roots].reverse()){const node=forest.byId.get(id),group=clone(blocks.slice(node.index,node.end)),mapping=new Map(group.map(b=>[b.id,uid()]));for(const block of group){block.id=mapping.get(block.id);if(mapping.has(block.parentId))block.parentId=mapping.get(block.parentId);}blocks.splice(node.end,0,...group);resultIds.unshift(group[0].id);}return {blocks:roots.length?renumberBlockTree(blocks,source):source,ids:resultIds};}
+export function moveSelectedBlocks(source,ids,targetId,position='before'){
+ const roots=selectedBlockRoots(source,ids),covered=selectedBlockCoverage(source,roots),forest=blockTree(source),target=forest.byId.get(targetId);if(!roots.length||!target||covered.has(targetId)||!['before','after','inside'].includes(position))return source;
+ if(position==='inside'&&roots.some(id=>!canContainBlock(target.block,forest.byId.get(id).block)))return source;
+ if(position!=='inside'&&roots.some(id=>target.parent&&!canContainBlock(target.parent.block,forest.byId.get(id).block)))return source;
+ const blocks=normalizeBlockTree(source),group=blocks.filter(b=>covered.has(b.id)),remaining=blocks.filter(b=>!covered.has(b.id)),next=blockTree(remaining).byId.get(targetId);for(const block of group)if(roots.includes(block.id))block.parentId=position==='inside'?targetId:next.parentId;
+ if(position==='inside'&&next.block.type==='toggle')next.block.collapsed=false;remaining.splice(position==='before'?next.index:next.end,0,...group);return renumberBlockTree(remaining,source);
+}
+export function changeSelectedBlocks(source,ids,patch){let blocks=normalizeBlockTree(source);const roots=selectedBlockRoots(source,ids);if(!roots.length)return source;for(const key of Object.keys(patch))if(!['type','textColor','backgroundColor','checked'].includes(key))throw new Error(t('invalidBlockBatch'));
+ for(const key of ['textColor','backgroundColor'])if(Object.hasOwn(patch,key)&&!pageColors.includes(patch[key]))throw new Error(t('invalidBlockBatch'));
+ if(Object.hasOwn(patch,'checked')&&typeof patch.checked!=='boolean')throw new Error(t('invalidBlockBatch'));
+ for(const id of roots){let block=blocks.find(b=>b.id===id);if(patch.type){if(!['paragraph','h1','h2','h3','h4','h5','h6','bullet','number','todo','toggle','quote','callout','code','table'].includes(patch.type)||['columns','column'].includes(block.type))throw new Error(t('invalidBlockBatch'));blocks=applyBlockCommand(blocks,{type:patch.type,mode:'actions',blockId:id}).blocks;block=blocks.find(b=>b.id===id);}for(const key of ['textColor','backgroundColor'])if(Object.hasOwn(patch,key))block[key]=patch[key];if(Object.hasOwn(patch,'checked')){if(block.type!=='todo')throw new Error(t('invalidBlockBatch'));block.checked=patch.checked;}}
+ return renumberBlockTree(blocks,source);
+}
+export function shiftSelectedBlocks(source,ids,direction){const roots=selectedBlockRoots(source,ids),picked=new Set(roots);let result=source;for(const id of direction<0?roots:[...roots].reverse()){const forest=blockTree(result),node=forest.byId.get(id),siblings=node.parent?.children||forest.roots,index=siblings.indexOf(node),other=siblings[index+(direction<0?-1:1)];if(other&&!picked.has(other.block.id))result=moveSelectedBlocks(result,[id],other.block.id,direction<0?'before':'after');}return result;}
+function siblingSelection(source,ids){const roots=selectedBlockRoots(source,ids),forest=blockTree(source),nodes=roots.map(id=>forest.byId.get(id));if(nodes.some(node=>node.parentId!==nodes[0].parentId))throw new Error(t('columnsNeedSiblings'));return {roots,nodes,forest};}
+export function indentSelectedBlocks(source,ids){const {roots,nodes,forest}=siblingSelection(source,ids);if(!nodes.length)return source;const siblings=nodes[0].parent?.children||forest.roots,previous=siblings[siblings.indexOf(nodes[0])-1];return previous&&!roots.includes(previous.block.id)?moveSelectedBlocks(source,roots,previous.block.id,'inside'):source;}
+export function outdentSelectedBlocks(source,ids){const {roots,nodes}=siblingSelection(source,ids);return nodes[0]?.parent&&nodes[0].parent.block.type!=='column'?moveSelectedBlocks(source,roots,nodes[0].parent.block.id,'after'):source;}

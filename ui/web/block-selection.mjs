@@ -1,0 +1,2 @@
+export function rangeBlockSelection(visible,anchor,target,previous=[]){const from=visible.indexOf(anchor),to=visible.indexOf(target),picked=new Set(previous);if(to>=0)for(const id of from<0?[target]:visible.slice(Math.min(from,to),Math.max(from,to)+1))picked.add(id);return visible.filter(id=>picked.has(id));}
+export function intersectingBlocks(rect,items){return items.filter(({rect:r})=>r.bottom>r.top&&r.right>r.left&&r.left<rect.right&&r.right>rect.left&&r.top<rect.bottom&&r.bottom>rect.top).map(item=>item.id);}

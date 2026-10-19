@@ -1789,3 +1789,115 @@ fn nested_toggle_blocks_survive_restart_backup_and_readable_export() {
     assert!(markdown.contains("        ````text\n        literal\n        ```\n        ````"));
     assert!(markdown.ends_with("尾部正文"));
 }
+
+fn column_blocks() -> serde_json::Value {
+    json!([
+        {"id":"group","type":"columns","text":""},
+        {"id":"left","type":"column","text":"","parentId":"group","width":0.4},
+        {"id":"a","type":"toggle","text":"左栏标题","parentId":"left","collapsed":true},
+        {"id":"b","type":"paragraph","text":"左栏子内容","parentId":"a"},
+        {"id":"right","type":"column","text":"","parentId":"group","width":0.6},
+        {"id":"code","type":"code","text":"literal\n```","language":"text","parentId":"right"},
+        {"id":"tail","type":"paragraph","text":"尾部"}
+    ])
+}
+#[test]
+fn column_layout_survives_restart_backup_and_readable_export() {
+    use base64::Engine;
+    use std::io::Read;
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "分栏备份");
+    let blocks = column_blocks();
+    let saved = s
+        .dispatch(
+            "save",
+            json!({"workspaceId":w,"page":{"title":"分栏页面","blocks":blocks}}),
+        )
+        .unwrap();
+    drop(s);
+    let mut s = Store::new(d.path()).unwrap();
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w})).unwrap()[0]["blocks"],
+        blocks
+    );
+    let exported = s.dispatch("export", json!({"workspaceId":w})).unwrap();
+    let other = create(&mut s, "分栏恢复");
+    s.dispatch(
+        "import",
+        json!({"workspaceId":other,"name":"分栏.zip","data":exported["data"]}),
+    )
+    .unwrap();
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":other})).unwrap()[0]["blocks"],
+        blocks
+    );
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(exported["data"].as_str().unwrap())
+        .unwrap();
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut markdown = String::new();
+    zip.by_name(&format!("markdown/{}.md", saved["id"].as_str().unwrap()))
+        .unwrap()
+        .read_to_string(&mut markdown)
+        .unwrap();
+    assert!(markdown.contains("- ▶ 左栏标题\n\n    - 左栏子内容"));
+    assert!(markdown.contains("\n\n````text\nliteral\n```\n````"));
+    assert!(!markdown.lines().any(|line| line.trim() == "-"));
+    assert!(markdown.ends_with("尾部"));
+}
+#[test]
+fn column_layout_rejects_invalid_containers_and_width_without_partial_save() {
+    let d = tempfile::tempdir().unwrap();
+    let mut s = Store::new(d.path()).unwrap();
+    let w = create(&mut s, "分栏校验");
+    let valid = column_blocks();
+    for bad in [
+        {
+            let mut b = valid.clone();
+            b[0]["text"] = json!("不能藏在容器里的正文");
+            b
+        },
+        {
+            let mut b = valid.clone();
+            b[1]["parentId"] = json!("");
+            b
+        },
+        {
+            let mut b = valid.clone();
+            b[4]["type"] = json!("paragraph");
+            b
+        },
+        {
+            let mut b = valid.clone();
+            b[1]["width"] = json!(0);
+            b
+        },
+        {
+            let mut b = valid.clone();
+            b[1]["width"] = json!("50%");
+            b
+        },
+        {
+            let mut b = valid.clone();
+            b[4]["width"] = json!(-1);
+            b
+        },
+        json!([{"id":"g","type":"columns","text":""},{"id":"c","type":"column","text":"","parentId":"g"}]),
+    ] {
+        assert!(s
+            .dispatch(
+                "save",
+                json!({"workspaceId":w,"page":{"title":"无效分栏","blocks":bad}})
+            )
+            .is_err());
+    }
+    assert_eq!(
+        s.dispatch("pages", json!({"workspaceId":w}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+}

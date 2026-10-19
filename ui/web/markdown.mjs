@@ -72,10 +72,10 @@ function flatMarkdown(blocks){
 }
 export function toMarkdown(blocks){
  if(!blocks.some(b=>b.parentId||b.type==='toggle'))return flatMarkdown(blocks);
- const forest=blockTree(blocks),prefixes=new Map();return forest.entries.map(entry=>{const block=entry.block,kind=block.type,listed=['bullet','number','todo'].includes(kind);let body=flatMarkdown([{...block,depth:0}]);
-  if(kind==='toggle')body='- ▶ '+String(block.text||'').replaceAll('\n','\n  ');else if(!listed&&(entry.children.length||entry.parent&&kind==='paragraph'))body='- '+body.replaceAll('\n','\n  ');
-  const prefix=entry.parent?prefixes.get(entry.parentId):'',width=kind==='number'||kind==='todo'&&block.listType==='number'?Math.max(4,String(block.order||1).length+2):4;prefixes.set(block.id,prefix+' '.repeat(width));return body.split('\n').map(line=>prefix+line).join('\n');
- }).join('\n\n');
+ const forest=blockTree(blocks),prefixes=new Map();return forest.entries.map(entry=>{const block=entry.block,kind=block.type,listed=['bullet','number','todo'].includes(kind);const prefix=entry.parent?prefixes.get(entry.parentId):'';if(['columns','column'].includes(kind)){prefixes.set(block.id,prefix);return null;}let body=flatMarkdown([{...block,depth:0}]);
+  if(kind==='toggle')body='- ▶ '+String(block.text||'').replaceAll('\n','\n  ');else if(!listed&&(entry.children.length||entry.parent&&entry.parent.block.type!=='column'&&kind==='paragraph'))body='- '+body.replaceAll('\n','\n  ');
+  const width=kind==='number'||kind==='todo'&&block.listType==='number'?Math.max(4,String(block.order||1).length+2):4;prefixes.set(block.id,prefix+' '.repeat(width));return body.split('\n').map(line=>prefix+line).join('\n');
+ }).filter(value=>value!==null).join('\n\n');
 }
 export function prepareMarkdownPaste(block,value,start=0,end=start){
  if(block.type==='code'||typeof value!=='string'||!value)return null;

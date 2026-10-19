@@ -29,7 +29,7 @@
     "test:e2e:page-links": "cargo build --locked -p notebook-core --bin server && node tests/e2e/page-links.mjs",
     "test:e2e:markdown-paste": "cargo build --locked -p notebook-core --bin server && node tests/e2e/markdown-paste.mjs",
     "test:e2e:database-views": "cargo build --locked -p notebook-core --bin server && node tests/e2e/database-views.mjs && node tests/e2e/database-view-safety.mjs",
-    "test:e2e:editor": "cargo build --locked -p notebook-core --bin server && node tests/e2e/editor-blocks.mjs && node tests/e2e/editor-safety.mjs"
+    "test:e2e:editor": "cargo build --locked -p notebook-core --bin server && node tests/e2e/editor-blocks.mjs && node tests/e2e/editor-safety.mjs && node tests/e2e/editor-layout.mjs && node tests/e2e/editor-layout-safety.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.0",

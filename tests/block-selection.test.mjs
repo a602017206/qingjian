@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+const helpers=await import('../ui/web/block-selection.mjs').catch(()=>({}));
+test('范围选择只包含可见范围，支持反向扩选及追加',()=>{assert.equal(typeof helpers.rangeBlockSelection,'function');assert.deepEqual(helpers.rangeBlockSelection(['a','c','e'],'e','a'),['a','c','e']);assert.deepEqual(helpers.rangeBlockSelection(['a','c','e'],'a','c',['e']),['a','c','e']);assert.deepEqual(helpers.rangeBlockSelection(['a','c'],'missing','c'),['c']);});
+test('框选按矩形交集计算，不包含不相交和零高度块',()=>{assert.equal(typeof helpers.intersectingBlocks,'function');const rect={left:10,top:10,right:100,bottom:100};assert.deepEqual(helpers.intersectingBlocks(rect,[{id:'a',rect:{left:20,top:20,right:90,bottom:40}},{id:'b',rect:{left:101,top:20,right:140,bottom:40}},{id:'c',rect:{left:20,top:100,right:90,bottom:100}}]),['a']);});
