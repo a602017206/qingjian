@@ -15,3 +15,8 @@ test('发布必须包含所有平台真实产物，摘要可校验且篡改后�
  const digest=await readFile(join(root,'SHA256SUMS.txt'),'utf8');assert.ok(digest.includes('qingjian-android-arm64.apk'));
  await writeFile(join(root,releaseAssets[0]),'');await assert.rejects(verifyAssets(root),/空|缺少/);await writeFile(join(root,releaseAssets[0]),'恢复');await writeFile(join(root,'private.env'),'保密');await assert.rejects(verifyAssets(root),/非发布/);
 });
+test('微软桌面检出为回车换行后仍能正确核对锁文件版本',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'qingjian-crlf-'));
+ for(const path of ['package.json','package-lock.json','src-tauri/tauri.conf.json','src-tauri/Cargo.toml','crates/notebook/Cargo.toml','Cargo.lock']){const target=join(root,path);await mkdir(join(target,'..'),{recursive:true});await writeFile(target,(await readFile(path,'utf8')).replace(/\r?\n/g,'\r\n'));}
+ const version=JSON.parse(await readFile('package.json','utf8')).version;assert.equal(await checkVersion(root,'v'+version),version);
+});

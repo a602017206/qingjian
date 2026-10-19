@@ -2,6 +2,9 @@ name: 安卓与苹果移动端构建
 on:
   workflow_call:
     inputs:
+      android_only:
+        type: boolean
+        default: false
       ref:
         type: string
         required: true
@@ -14,6 +17,10 @@ on:
         required: true
   workflow_dispatch:
     inputs:
+      android_only:
+        description: 仅构建安卓，便于单独重试
+        type: boolean
+        default: false
       ref:
         description: 源码分支或标签
         default: main
@@ -46,6 +53,9 @@ jobs:
           java-version: '17'
       - name: 配置安卓工具
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
       - name: 安装安卓平台与原生工具
         run: |
           sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
@@ -75,6 +85,7 @@ jobs:
           path: artifacts/release/*
           if-no-files-found: error
   ios:
+    if: ${{ !inputs.android_only }}
     name: ${{ matrix.label }}
     timeout-minutes: 90
     runs-on: macos-15

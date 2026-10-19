@@ -8,7 +8,7 @@ export async function checkVersion(root,tag){
  const p=await json('package.json'),lock=await json('package-lock.json'),config=await json('src-tauri/tauri.conf.json'),version=p.version;
  if(!/^\d+\.\d+\.\d+$/.test(version)||lock.version!==version||lock.packages[''].version!==version||config.version!==version)throw new Error('前端与原生配置版本不一致');
  for(const path of ['src-tauri/Cargo.toml','crates/notebook/Cargo.toml']){const content=await readFile(join(root,path),'utf8');if(content.match(/^version\s*=\s*"([^"]+)"/m)?.[1]!==version)throw new Error('核心与应用版本不一致');}
- const cargo=await readFile(join(root,'Cargo.lock'),'utf8');for(const name of ['qingjian','notebook-core'])if(!cargo.includes(`name = "${name}"\nversion = "${version}"`))throw new Error('原生锁文件版本不一致');
+ const cargo=(await readFile(join(root,'Cargo.lock'),'utf8')).replace(/\r\n/g,'\n');for(const name of ['qingjian','notebook-core'])if(!cargo.includes(`name = "${name}"\nversion = "${version}"`))throw new Error('原生锁文件版本不一致');
  if(tag&&tag!=='v'+version)throw new Error('标签与应用版本不一致');return version;
 }
 export async function verifyAssets(root){
