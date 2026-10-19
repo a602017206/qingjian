@@ -109,10 +109,10 @@ fn local_git_history_restore_and_remote_divergence() {
     local["title"] = json!("本地修改");
     s.dispatch("save", json!({"workspaceId":b,"page":local}))
         .unwrap();
-    assert!(s
-        .dispatch("sync", json!({"workspaceId":b}))
-        .unwrap_err()
-        .contains("分叉"));
+    assert_eq!(
+        s.dispatch("sync", json!({"workspaceId":b})).unwrap()["status"],
+        "conflict"
+    );
     let history = s
         .dispatch("history", json!({"workspaceId":a,"id":p["id"]}))
         .unwrap();

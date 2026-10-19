@@ -1,8 +1,7 @@
-use crate::{err, text, valid_id, Result, Store};
+use crate::{err, text, valid_id, Result};
 use git2::{
-    build::{CheckoutBuilder, RepoBuilder},
-    Cred, CredentialType, Direction, FetchOptions, IndexAddOption, Oid, PushOptions,
-    RemoteCallbacks, Repository, Signature, StatusOptions,
+    build::RepoBuilder, Cred, CredentialType, Direction, FetchOptions, IndexAddOption, Oid,
+    PushOptions, RemoteCallbacks, Repository, Signature, StatusOptions,
 };
 use serde_json::{json, Value};
 use std::{
@@ -273,14 +272,12 @@ pub(crate) fn commit(dir: &Path, message: &str) -> Result<Value> {
         .map_err(err)?;
     Ok(json!({"commit":oid.to_string(),"message":"已保存本地版本"}))
 }
-pub(crate) fn sync(dir: &Path, w: &Value, user: &str, token: &str) -> Result<Value> {
-    let local = commit(dir, "同步前保存笔记")?;
-    if text(w, "remote").is_empty() {
-        return Ok(
-            json!({"commit":local["commit"],"message":"已保存本地版本；关联远程仓库后可同步"}),
-        );
-    };
-    let repo = Repository::open(dir).map_err(err)?;
+pub(crate) fn fetch_head(
+    repo: &Repository,
+    w: &Value,
+    user: &str,
+    token: &str,
+) -> Result<Option<Oid>> {
     let mut remote = repo.find_remote("origin").map_err(err)?;
     let branch = text(w, "branch");
     let refname = format!("refs/heads/{branch}");
@@ -298,58 +295,41 @@ pub(crate) fn sync(dir: &Path, w: &Value, user: &str, token: &str) -> Result<Val
             .iter()
             .any(|h| h.name() == refname)
     };
-    if exists {
-        let tracking = format!("refs/remotes/origin/{branch}");
-        let mut options = FetchOptions::new();
-        options.remote_callbacks(callbacks(text(w, "remote"), user, token));
-        remote
-            .fetch(
-                &[&format!("+{refname}:{tracking}")],
-                Some(&mut options),
-                None,
-            )
-            .map_err(|e| format!("拉取失败：{}", e.message()))?;
-        let theirs = repo
-            .find_reference(&tracking)
-            .map_err(err)?
-            .target()
-            .ok_or("远程版本无法读取")?;
-        let ours = repo
-            .head()
-            .map_err(err)?
-            .target()
-            .ok_or("本地版本无法读取")?;
-        if theirs != ours {
-            if repo.graph_descendant_of(theirs, ours).map_err(err)? {
-                let target = repo.find_commit(theirs).map_err(err)?;
-                validate_tree(&repo, &target.tree().map_err(err)?)?;
-                repo.checkout_tree(target.as_object(), Some(CheckoutBuilder::new().safe()))
-                    .map_err(|e| format!("远程更新无法应用，本地内容已保留：{}", e.message()))?;
-                repo.find_reference(&refname)
-                    .map_err(err)?
-                    .set_target(theirs, "快进更新笔记")
-                    .map_err(err)?;
-                repo.set_head(&refname).map_err(err)?;
-                Store::pages_at(dir)?;
-            } else if !repo.graph_descendant_of(ours, theirs).map_err(err)? {
-                return Err("本地与远程历史已分叉，已保留本地提交。请手动合并后重试，或新建工作区克隆远程版本；不会自动覆盖或强制推送".into());
-            }
-        }
+    if !exists {
+        return Ok(None);
     }
-    let mut push = PushOptions::new();
-    push.remote_callbacks(callbacks(text(w, "remote"), user, token));
+    let tracking = format!("refs/remotes/origin/{branch}");
+    let mut options = FetchOptions::new();
+    options.remote_callbacks(callbacks(text(w, "remote"), user, token));
     remote
-        .push(&[&format!("{refname}:{refname}")], Some(&mut push))
-        .map_err(|e| format!("推送失败，本地版本已保留：{}", e.message()))?;
-    let head = repo
-        .head()
+        .fetch(
+            &[&format!("+{refname}:{tracking}")],
+            Some(&mut options),
+            None,
+        )
+        .map_err(|e| format!("拉取失败：{}", e.message()))?;
+    let target = repo
+        .find_reference(&tracking)
         .map_err(err)?
         .target()
-        .map(|id| id.to_string())
-        .unwrap_or_default();
-    Ok(json!({"commit":head,"message":"已与远程仓库同步"}))
+        .ok_or("远程版本无法读取")?;
+    Ok(Some(target))
 }
-fn validate_tree(repo: &Repository, tree: &git2::Tree) -> Result<()> {
+pub(crate) fn push(repo: &Repository, w: &Value, user: &str, token: &str) -> Result<()> {
+    let mut remote = repo.find_remote("origin").map_err(err)?;
+    let refname = format!("refs/heads/{}", text(w, "branch"));
+    let mut options = PushOptions::new();
+    options.remote_callbacks(callbacks(text(w, "remote"), user, token));
+    remote
+        .push(&[&format!("{refname}:{refname}")], Some(&mut options))
+        .map_err(|e| {
+            format!(
+                "推送未完成，本机版本与恢复点已保留；若远程又有更新，请再次同步：{}",
+                e.message()
+            )
+        })
+}
+pub(crate) fn validate_tree(repo: &Repository, tree: &git2::Tree) -> Result<()> {
     let mut forbidden = false;
     tree.walk(git2::TreeWalkMode::PreOrder, |_, entry| {
         if entry.filemode() == 0o120000 || entry.filemode() == 0o160000 {
@@ -465,6 +445,32 @@ pub(crate) fn restore_page_assets(dir: &Path, page: &Value, oid: &str) -> Result
         crate::atomic(&path, blob.content())?;
     }
     Ok(())
+}
+
+pub(crate) fn next_page_revision(dir: &Path, id: &str) -> Result<u64> {
+    if !valid_id(id) {
+        return Err("页面标识无效".into());
+    }
+    let repo = Repository::open(dir).map_err(err)?;
+    let mut walk = repo.revwalk().map_err(err)?;
+    walk.push_head().map_err(err)?;
+    let mut highest = 0;
+    for oid in walk {
+        let tree = repo
+            .find_commit(oid.map_err(err)?)
+            .map_err(err)?
+            .tree()
+            .map_err(err)?;
+        if let Ok(entry) = tree.get_path(Path::new(&format!("pages/{id}.json"))) {
+            let page: Value =
+                serde_json::from_slice(repo.find_blob(entry.id()).map_err(err)?.content())
+                    .map_err(err)?;
+            highest = highest.max(page["revision"].as_u64().unwrap_or(0));
+        }
+    }
+    highest
+        .checked_add(1)
+        .ok_or_else(|| "页面修订号超出范围".into())
 }
 
 #[cfg(all(test, unix))]

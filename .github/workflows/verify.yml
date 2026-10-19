@@ -69,6 +69,7 @@ jobs:
           npm run test:e2e:updates
           npm run test:e2e:mobile
           npm run test:e2e:sync-setup
+          npm run test:e2e:sync-conflicts
       - name: 保存界面验证结果
         if: always()
         uses: actions/upload-artifact@v4

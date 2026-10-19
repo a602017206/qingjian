@@ -7,7 +7,9 @@ mod import;
 mod markdown;
 mod notion;
 mod property;
+mod sync;
 mod views;
+mod workspaces;
 
 use base64::Engine;
 use chrono::Utc;
@@ -271,7 +273,10 @@ impl Store {
         validate_hierarchy(&pages)?;
         Ok(pages)
     }
-    pub(crate) fn save_at(dir: &Path, mut p: Value) -> Result<Value> {
+    pub(crate) fn save_at(dir: &Path, p: Value) -> Result<Value> {
+        Self::save_at_revision(dir, p, None)
+    }
+    fn save_at_revision(dir: &Path, mut p: Value, new_revision: Option<u64>) -> Result<Value> {
         validate_page(&p)?;
         if !p.is_object() {
             return Err("页面格式无效".into());
@@ -293,8 +298,13 @@ impl Store {
             p["createdAt"] = old["createdAt"].clone();
             p["revision"] = json!(old["revision"].as_u64().unwrap_or(0) + 1)
         } else {
+            if !text(&p, "id").is_empty() && p["revision"].as_u64().unwrap_or(0) > 0 {
+                return Err(
+                    "页面已删除或移走，旧窗口的草稿没有覆盖磁盘；请刷新或保存为新副本".into(),
+                );
+            }
             p["createdAt"] = json!(now());
-            p["revision"] = json!(1)
+            p["revision"] = json!(new_revision.unwrap_or(1))
         }
         let mut parent = text(&p, "parentId");
         let mut seen = HashSet::from([id.clone()]);
@@ -499,6 +509,12 @@ impl Store {
                 Ok(self.config.clone())
             }
             "createWorkspace" => self.create_workspace(&q),
+            "removeWorkspacePreview" => self.remove_workspace_preview(&q),
+            "removeWorkspace" => self.remove_workspace(&q),
+            "archivedWorkspaces" => self.archived_workspaces(),
+            "restoreWorkspace" => self.restore_workspace(&q),
+            "purgeWorkspace" => self.purge_workspace(&q),
+            "restoreSyncBackup" => self.restore_sync_backup(&q),
             "activate" => {
                 self.workspace(text(&q, "workspaceId"))?;
                 self.config["activeId"] = q["workspaceId"].clone();
@@ -570,14 +586,25 @@ impl Store {
                     "stats" => self.stats(&dir),
                     "status" => git::status(&dir, &w),
                     "commit" => git::commit(&dir, text(&q, "message")),
-                    "sync" => {
+                    "sync" | "resolveSync" => {
                         let auth = self
                             .credentials
                             .get(text(&w, "id"))
                             .cloned()
                             .unwrap_or_default();
-                        git::sync(&dir, &w, &auth.0, &auth.1)
+                        sync::run(
+                            &dir,
+                            &w,
+                            &auth.0,
+                            &auth.1,
+                            if action == "resolveSync" {
+                                Some(&q)
+                            } else {
+                                None
+                            },
+                        )
                     }
+                    "syncBackups" => sync::backups(&dir),
                     "history" => git::history(&dir, text(&q, "id")),
                     "restore" => {
                         git::commit(&dir, "恢复前保存笔记")?;
@@ -585,12 +612,16 @@ impl Store {
                         let current = Self::pages_at(&dir)?
                             .into_iter()
                             .find(|p| text(p, "id") == text(&q, "id"));
-                        if let Some(current) = current {
-                            p["revision"] = current["revision"].clone()
-                        }
+                        let next_revision = if let Some(current) = current {
+                            p["revision"] = current["revision"].clone();
+                            None
+                        } else {
+                            p["revision"] = json!(0);
+                            Some(git::next_page_revision(&dir, text(&p, "id"))?)
+                        };
                         p["deleted"] = json!(false);
                         git::restore_page_assets(&dir, &p, text(&q, "commit"))?;
-                        Self::save_at(&dir, p)
+                        Self::save_at_revision(&dir, p, next_revision)
                     }
                     "import" => {
                         let b = base64::engine::general_purpose::STANDARD
