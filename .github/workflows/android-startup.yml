@@ -80,7 +80,7 @@ jobs:
             target: google_apis
             page_size: '4096'
             label: 安卓十六冷启动
-          - api: 35
+          - api: 36
             target: google_apis_ps16k
             page_size: '16384'
             label: 十六千字节页冷启动
