@@ -7,10 +7,13 @@ if(!ANDROID_KEYSTORE_BASE64||!ANDROID_KEYSTORE_PASSWORD||!ANDROID_KEY_ALIAS||!AN
 const walk=async root=>{let paths=[];for(const e of await readdir(root,{withFileTypes:true})){const path=join(root,e.name);if(e.isDirectory())paths.push(...await walk(path));else if(e.name.endsWith('.apk'))paths.push(path);}return paths;};
 const files=(await walk('src-tauri/gen/android/app/build/outputs/apk')).filter(p=>p.includes('release')&&!p.includes('androidTest'));
 if(files.length!==1)throw new Error('应当只有一份安卓发布产物');
+const nativeCheck=spawnSync('python3',['scripts/check-android.py',files[0]],{stdio:'inherit'});
+if(nativeCheck.error||nativeCheck.status!==0)throw new Error('安卓原生库兼容性校验失败');
 const key=join(RUNNER_TEMP,'qingjian-release.jks'),aligned=join(RUNNER_TEMP,'qingjian-aligned.apk'),output=resolve('artifacts/release/qingjian-android-arm64.apk'),tools=join(ANDROID_HOME,'build-tools','36.0.0');
 await writeFile(key,Buffer.from(ANDROID_KEYSTORE_BASE64,'base64'),{mode:0o600});await chmod(key,0o600);await mkdir('artifacts/release',{recursive:true});
 const run=(name,args)=>{const r=spawnSync(join(tools,name),args,{stdio:'inherit',env:process.env});if(r.error)throw r.error;if(r.status!==0)throw new Error('安卓对齐或签名校验失败');};
 run('zipalign',['-P','16','-f','4',files[0],aligned]);
 run('apksigner',['sign','--ks',key,'--ks-key-alias',ANDROID_KEY_ALIAS,'--ks-pass','env:ANDROID_KEYSTORE_PASSWORD','--key-pass','env:ANDROID_KEYSTORE_PASSWORD','--v4-signing-enabled','false','--out',output,aligned]);
 run('apksigner',['verify','--verbose','--print-certs',output]);
+run('zipalign',['-c','-P','16','-v','4',output]);
 console.log('安卓固定签名安装包已生成并通过校验');

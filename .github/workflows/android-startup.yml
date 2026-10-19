@@ -1,0 +1,115 @@
+name: 安卓原生冷启动验证
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 源码分支或标签
+        default: main
+        required: true
+permissions:
+  contents: read
+jobs:
+  build:
+    name: 构建安卓发布模式测试包
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: 配置测试架构的原生工具
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "CC_x86_64_linux_android=$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang" >> "$GITHUB_ENV"
+          echo "AR_x86_64_linux_android=$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar" >> "$GITHUB_ENV"
+          echo "RANLIB_x86_64_linux_android=$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ranlib" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-startup-x64
+      - run: npm ci
+      - name: 生成并构建发布模式测试应用
+        run: |
+          npm run tauri -- android init --ci --skip-targets-install
+          npm run tauri -- android build --target x86_64 --apk --ci
+      - name: 校验原生库并为模拟器临时签名
+        shell: bash
+        run: |
+          mapfile -t packages < <(find src-tauri/gen/android/app/build/outputs/apk -path '*release*' -name '*.apk')
+          test "${#packages[@]}" -eq 1
+          python3 scripts/check-android.py "${packages[0]}"
+          keytool -genkeypair -keystore "$RUNNER_TEMP/smoke.jks" -storepass android -keypass android -alias smoke -keyalg RSA -keysize 2048 -validity 2 -dname 'CN=Qingjian CI Test'
+          mkdir -p .test-data
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -P 16 -f 4 "${packages[0]}" "$RUNNER_TEMP/aligned.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign --ks "$RUNNER_TEMP/smoke.jks" --ks-pass pass:android --key-pass pass:android --out .test-data/emulator-release.apk "$RUNNER_TEMP/aligned.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qingjian-android-startup-package
+          path: .test-data/emulator-release.apk
+          if-no-files-found: error
+  startup:
+    name: ${{ matrix.label }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 36
+            target: google_apis
+            page_size: '4096'
+            label: 安卓十六冷启动
+          - api: 35
+            target: google_apis_ps16k
+            page_size: '16384'
+            label: 十六千字节页冷启动
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: qingjian-android-startup-package
+          path: .test-data
+      - name: 开启硬件虚拟化
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: 发布模式实际冷启动
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          EXPECTED_PAGE_SIZE: ${{ matrix.page_size }}
+        with:
+          api-level: ${{ matrix.api }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          disable-animations: true
+          script: python3 scripts/smoke-android.py .test-data/emulator-release.apk
+      - name: 保存启动日志与截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingjian-android-startup-${{ matrix.api }}-${{ matrix.page_size }}
+          path: test-results/android-startup/

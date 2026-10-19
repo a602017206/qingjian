@@ -14,3 +14,6 @@ test('安卓原生依赖使用同一套原生归档与索引工具',async()=>{
 test('苹果移动端静态嵌入压缩依赖，避免原生归档遗漏系统库链接',async()=>{
  const manifest=await readFile('crates/notebook/Cargo.toml','utf8');assert.match(manifest,/\[target\.'cfg\(target_os = "ios"\)'\.dependencies\]\s+libz-sys = \{ version = "1", features = \["static"\] \}/);
 });
+test('安卓实际链接设置同时约束最大页与通用页，防止只有压缩包对齐',async()=>{
+ const build=await readFile('src-tauri/build.rs','utf8');assert.match(build,/max-page-size=16384/);assert.match(build,/common-page-size=16384/);
+});
