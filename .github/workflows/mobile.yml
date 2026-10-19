@@ -124,6 +124,8 @@ jobs:
         run: node scripts/release.mjs check-version
       - name: 生成原生苹果工程
         run: npm run tauri -- ios init --ci --skip-targets-install
+      - name: 明确链接苹果系统字符转换库
+        run: node scripts/configure-ios.mjs
       - name: 无付费证书构建苹果应用
         run: npm run mobile:${{ matrix.command }}
       - name: 区分平台并校验打包
