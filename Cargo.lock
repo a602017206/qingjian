@@ -2317,6 +2317,7 @@ dependencies = [
  "csv",
  "ego-tree",
  "git2",
+ "libz-sys",
  "percent-encoding",
  "regex",
  "scraper",

@@ -8,3 +8,9 @@ test('前端安装清单与锁文件一致且移动流水线入口存在',async(
 test('安卓云端初始化明确选择平台工具，避免安装已移除的旧工具包',async()=>{
  const workflow=await readFile('.github/workflows/mobile.yml','utf8');assert.match(workflow,/uses: android-actions\/setup-android@v3\s+with:\s+packages: platform-tools/);
 });
+test('安卓原生依赖使用同一套原生归档与索引工具',async()=>{
+ const workflow=await readFile('.github/workflows/mobile.yml','utf8');assert.match(workflow,/RANLIB_aarch64_linux_android=.*\/llvm-ranlib/);
+});
+test('苹果移动端静态嵌入压缩依赖，避免原生归档遗漏系统库链接',async()=>{
+ const manifest=await readFile('crates/notebook/Cargo.toml','utf8');assert.match(manifest,/\[target\.'cfg\(target_os = "ios"\)'\.dependencies\]\s+libz-sys = \{ version = "1", features = \["static"\] \}/);
+});
