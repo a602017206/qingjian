@@ -9,7 +9,7 @@ let browser,workspaceId;
 const api=async(action,data={})=>{const response=await fetch(`${base}/api/${action}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({workspaceId,...data})});const result=await response.json();if(result.error)throw new Error(result.error);return result.data;};
 try{
  await mkdir('test-results',{recursive:true});for(let i=0;i<100;i++){try{if((await fetch(base)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
- workspaceId=(await api('createWorkspace',{name:'子页面交互'})).id;
+ workspaceId=(await api('createWorkspace',{name:'子页面交互',remote:'https://example.test/notes.git'})).id;
  const child=await api('save',{page:{title:'数据库',icon:'🗃️',blocks:[{id:'body',type:'paragraph',text:'子页面原始正文'}]}});
  const sibling=await api('save',{page:{title:'缓存',icon:'🟢',blocks:[]}});
  const parent=await api('save',{page:{title:'后端开发',icon:'💻',blocks:[{id:'link1',type:'paragraph',text:`[旧名称](page:${child.id})`,linkIcon:'🗃️'},{id:'link2',type:'paragraph',text:`[缓存](page:${sibling.id})`,backgroundColor:'purple'},{id:'mix',type:'paragraph',text:`参考 [数据库](page:${child.id})`}]}});
