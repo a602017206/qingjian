@@ -46,6 +46,9 @@ jobs:
         run: cargo test --locked -p notebook-core
       - name: 构建桌面安装包
         run: npm run tauri -- build --bundles ${{ matrix.bundle }} -- --locked
+      - name: 苹果临时签名、完整性校验与中文分发说明
+        if: runner.os == 'macOS'
+        run: npm run desktop:package:macos
       - name: 保存安装包
         uses: actions/upload-artifact@v4
         with:
@@ -53,5 +56,6 @@ jobs:
           path: |
             target/release/bundle/**/*.deb
             target/release/bundle/**/*.exe
-            target/release/bundle/**/*.app
+            artifacts/轻笺-苹果桌面.zip
+            artifacts/轻笺-苹果桌面.zip.sha256
           if-no-files-found: error
