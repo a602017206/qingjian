@@ -59,6 +59,7 @@ impl Store {
         }
         let id = text(q, "workspaceId");
         let (w, dir) = self.workspace(id)?;
+        self.clear_credentials(&w)?;
         let archive_id = uid();
         let archive_root = self.root.join("archived-workspaces");
         ensure_dir(&archive_root)?;

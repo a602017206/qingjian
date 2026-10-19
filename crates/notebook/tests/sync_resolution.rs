@@ -426,3 +426,29 @@ fn restoring_purged_history_does_not_reuse_the_first_revision() {
         .dispatch("save", json!({"workspaceId":a,"page":stale}))
         .is_err());
 }
+
+#[test]
+fn nonempty_remote_with_different_branch_does_not_silently_upload_new_branch() {
+    let t = TempDir::new().unwrap();
+    let remote = t.path().join("remote.git");
+    let repo = git2::Repository::init_bare(&remote).unwrap();
+    let mut s = Store::new(&t.path().join("data")).unwrap();
+    let a = call(
+        &mut s,
+        "createWorkspace",
+        json!({"name":"已有分支","remote":remote,"branch":"master"}),
+    );
+    save(&mut s, a["id"].as_str().unwrap(), "one", "远程原有内容");
+    call(&mut s, "sync", json!({"workspaceId":a["id"]}));
+    let b = call(
+        &mut s,
+        "createWorkspace",
+        json!({"name":"新手机","remote":remote,"branch":"main"}),
+    );
+    save(&mut s, b["id"].as_str().unwrap(), "two", "本机内容");
+    let message = s
+        .dispatch("sync", json!({"workspaceId":b["id"]}))
+        .unwrap_err();
+    assert!(message.contains("master"));
+    assert!(repo.find_reference("refs/heads/main").is_err());
+}

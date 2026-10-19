@@ -1,3 +1,4 @@
+import {operationError} from './errors.mjs';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -7,9 +8,11 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { pickedFilename } from './core.mjs';
 export const native = () => isTauri();
 export async function api(action,request={}){
- if(native())return await invoke('dispatch',{action,request});
- const response=await fetch(`/api/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
- if(!response.ok)throw new Error(t('operationFailed'));const result=await response.json();if(result.error)throw new Error(result.error);return result.data;
+ try{
+  if(native())return await invoke('dispatch',{action,request});
+  const response=await fetch(`/api/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});
+  if(!response.ok)throw new Error(t('operationFailed'));const result=await response.json();if(result.error)throw result.error;return result.data;
+ }catch(failure){throw operationError(failure,request);}
 }
 export function encodeBase64(bytes){let str='';for(let i=0;i<bytes.length;i+=16384)str+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(str);}
 export function decodeBase64(base64){return Uint8Array.from(atob(base64),c=>c.charCodeAt(0));}

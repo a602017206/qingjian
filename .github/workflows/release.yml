@@ -6,7 +6,7 @@ on:
     inputs:
       tag:
         description: 已存在的版本标签
-        default: v0.0.5
+        default: v0.0.6
         required: true
 permissions:
   contents: read

@@ -1,4 +1,4 @@
-name: 安卓原生冷启动验证
+name: 安卓原生冷启动与认证持久化验证
 on:
   workflow_call:
     inputs:
@@ -51,7 +51,7 @@ jobs:
       - name: 生成并构建发布模式测试应用
         run: |
           npm run tauri -- android init --ci --skip-targets-install
-          npm run tauri -- android build --target x86_64 --apk --ci
+          npm run tauri -- android build --target x86_64 --apk --ci --features credential-smoke
       - name: 校验原生库并为模拟器临时签名
         shell: bash
         run: |

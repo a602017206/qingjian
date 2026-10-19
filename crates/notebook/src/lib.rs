@@ -1,5 +1,7 @@
 mod blocks;
 mod cleanup;
+mod credentials;
+pub use credentials::CredentialVault;
 mod git;
 pub use git::configure_network;
 mod html_import;
@@ -205,6 +207,7 @@ pub struct Store {
     pub root: PathBuf,
     pub(crate) config: Value,
     pub(crate) credentials: std::collections::HashMap<String, (String, String)>,
+    credential_vault: Option<std::sync::Arc<dyn CredentialVault>>,
 }
 impl Store {
     pub fn new(root: &Path) -> Result<Self> {
@@ -223,6 +226,7 @@ impl Store {
             root: root.to_owned(),
             config,
             credentials: Default::default(),
+            credential_vault: None,
         })
     }
     fn persist(&self) -> Result<()> {
@@ -412,8 +416,17 @@ impl Store {
             return Err(e);
         };
         if !text(q, "token").is_empty() {
-            self.credentials
-                .insert(id, (text(q, "username").into(), text(q, "token").into()));
+            let mut auth = q.clone();
+            auth["workspaceId"] = json!(id);
+            if let Err(error) = self.save_credentials(&auth) {
+                self.credentials
+                    .insert(id, (text(q, "username").into(), text(q, "token").into()));
+                let mut result = w;
+                result["credentialWarning"] = json!(format!(
+                    "工作区已创建，认证仅用于本次会话，未安全记住：{error}"
+                ));
+                return Ok(result);
+            }
         };
         Ok(w)
     }
@@ -544,7 +557,7 @@ impl Store {
                 git::validate_remote(text(new, "remote"))?;
                 let repo = git2::Repository::open(dir).map_err(err)?;
                 if text(new, "remote") != text(&old, "remote") {
-                    self.credentials.remove(text(new, "id"));
+                    self.clear_credentials(&old)?;
                 }
                 if text(new, "remote").is_empty() {
                     if repo.find_remote("origin").is_ok() {
@@ -565,14 +578,13 @@ impl Store {
                 self.persist()?;
                 Ok(self.config.clone())
             }
-            "credentials" => {
-                let id = text(&q, "workspaceId");
-                self.workspace(id)?;
-                self.credentials.insert(
-                    id.into(),
-                    (text(&q, "username").into(), text(&q, "token").into()),
-                );
-                Ok(json!(true))
+            "credentialCapabilities" => Ok(json!({"available":self.credential_vault.is_some()})),
+            "credentials" => self.save_credentials(&q),
+            "credentialStatus" => self.credential_status(text(&q, "workspaceId")),
+            "forgetCredentials" => {
+                let (w, _) = self.workspace(text(&q, "workspaceId"))?;
+                self.clear_credentials(&w)?;
+                self.credential_status(text(&q, "workspaceId"))
             }
             _ => {
                 let (w, dir) = self.workspace(text(&q, "workspaceId"))?;
@@ -587,11 +599,7 @@ impl Store {
                     "status" => git::status(&dir, &w),
                     "commit" => git::commit(&dir, text(&q, "message")),
                     "sync" | "resolveSync" => {
-                        let auth = self
-                            .credentials
-                            .get(text(&w, "id"))
-                            .cloned()
-                            .unwrap_or_default();
+                        let auth = self.load_credentials(&w)?;
                         sync::run(
                             &dir,
                             &w,

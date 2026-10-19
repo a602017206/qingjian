@@ -70,6 +70,8 @@ jobs:
           npm run test:e2e:mobile
           npm run test:e2e:sync-setup
           npm run test:e2e:sync-conflicts
+          npm run test:e2e:credentials
+          npm run test:e2e:gitee
       - name: 保存界面验证结果
         if: always()
         uses: actions/upload-artifact@v4

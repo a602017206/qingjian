@@ -1,3 +1,6 @@
+#[cfg(all(feature = "credential-smoke", target_os = "android"))]
+mod credential_smoke;
+mod credentials;
 use notebook_core::Store;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -77,9 +80,12 @@ pub fn run() {
                 Ok(p) => std::path::PathBuf::from(p),
                 Err(_) => app.path().app_data_dir()?,
             };
-            let store = Store::new(&root).map_err(std::io::Error::other)?;
+            let mut store = Store::new(&root).map_err(std::io::Error::other)?;
+            store.set_credential_vault(Arc::new(credentials::SystemVault::new()));
             notebook_core::configure_network(&root).map_err(std::io::Error::other)?;
             app.manage(SharedStore(Arc::new(Mutex::new(store))));
+            #[cfg(all(feature = "credential-smoke", target_os = "android"))]
+            tauri::async_runtime::spawn_blocking(move || credential_smoke::run(&root));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![dispatch])

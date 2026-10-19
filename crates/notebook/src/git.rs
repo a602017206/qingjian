@@ -146,12 +146,17 @@ fn scoped_credential(
             "认证请求不属于已配置的仓库站点，已拒绝发送令牌",
         ));
     }
+    if configured.host_str() == Some("gitee.com") && username.trim().is_empty() {
+        return Err(git2::Error::from_str(
+            "Gitee 认证需要真实用户名，请填写个人主页的用户名和具有仓库读写权限的私人令牌",
+        ));
+    }
     if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) && !token.is_empty() {
         Cred::userpass_plaintext(
             if username.is_empty() {
                 "oauth2"
             } else {
-                username
+                username.trim()
             },
             token,
         )
@@ -281,7 +286,7 @@ pub(crate) fn fetch_head(
     let mut remote = repo.find_remote("origin").map_err(err)?;
     let branch = text(w, "branch");
     let refname = format!("refs/heads/{branch}");
-    let exists = {
+    let branches = {
         let connection = remote
             .connect_auth(
                 Direction::Fetch,
@@ -293,9 +298,13 @@ pub(crate) fn fetch_head(
             .list()
             .map_err(err)?
             .iter()
-            .any(|h| h.name() == refname)
+            .filter_map(|h| h.name().strip_prefix("refs/heads/").map(str::to_owned))
+            .collect::<Vec<_>>()
     };
-    if !exists {
+    if !branches.iter().any(|name| name == branch) {
+        if !branches.is_empty() {
+            return Err(format!("远程仓库已有分支 {}，但没有当前分支 {}。未上传或新建远程分支。请在同步引导中选择下载已有笔记，并在高级设置填写实际分支；原工作区仍保留",branches.join("、"),branch));
+        }
         return Ok(None);
     }
     let tracking = format!("refs/remotes/origin/{branch}");
@@ -507,6 +516,25 @@ mod network_tests {
 #[cfg(test)]
 mod credential_scope_tests {
     use super::*;
+    #[test]
+    fn gitee_requires_real_username_and_accepts_scoped_https_token() {
+        let allowed = CredentialType::USER_PASS_PLAINTEXT;
+        let url = "https://gitee.com/example/notes.git";
+        assert!(scoped_credential(url, url, "", "anonymous-token", allowed)
+            .err()
+            .unwrap()
+            .message()
+            .contains("用户名"));
+        assert!(scoped_credential(url, url, "example", "anonymous-token", allowed).is_ok());
+        assert!(scoped_credential(
+            url,
+            "https://github.com/example/notes.git",
+            "example",
+            "anonymous-token",
+            allowed
+        )
+        .is_err());
+    }
     #[test]
     fn credentials_are_only_returned_to_the_configured_https_origin() {
         let allowed = CredentialType::USER_PASS_PLAINTEXT;

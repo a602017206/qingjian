@@ -1,4 +1,10 @@
-import os,subprocess,time,pathlib,sys
+import os,subprocess,time,pathlib,sys,re
+
+def verify_credential_stage(log,stage):
+    expected=['SAVED','RESTORED_AND_DELETED','FORGOTTEN'][stage]
+    events=re.findall(r'QingjianCredentialSmoke\s*:\s*(\w+)',log)
+    if 'FAILED' in events or expected not in events:
+        raise RuntimeError('安卓安全认证进程重启验证失败，阶段：'+str(stage+1))
 
 def main():
     if os.environ.get('GITHUB_ACTIONS')!='true':raise RuntimeError('安卓原生启动测试仅在云端执行')
@@ -14,11 +20,15 @@ def main():
         adb('install','-r',sys.argv[1]);adb('logcat','-c')
         for attempt in range(3):
             adb('shell','am','force-stop',package)
+            adb('logcat','-c')
             launch=adb('shell','am','start','-W','-n',package+'/.MainActivity').decode(errors='replace')
             (output/f'launch-{attempt}.txt').write_text(launch)
             if 'Error:' in launch:raise RuntimeError('安卓启动入口失败')
             time.sleep(10)
             if not adb('shell','pidof',package,missing_ok=True).strip():raise RuntimeError('安卓应用启动后退出')
+            stage_log=adb('logcat','-d').decode(errors='replace')
+            (output/f'credential-stage-{attempt}.txt').write_text(stage_log)
+            verify_credential_stage(stage_log,attempt)
         ready=False
         for _ in range(6):
             adb('shell','uiautomator','dump','/sdcard/qingjian-window.xml')
@@ -28,7 +38,7 @@ def main():
         if not ready:raise RuntimeError('安卓进程存活，但未进入笔记工作台')
         crashes=adb('logcat','-d','-b','crash').decode(errors='replace')
         if package in crashes:raise RuntimeError('安卓启动日志存在应用崩溃')
-        print('安卓三次冷启动、笔记工作台及进程存活验证通过，页大小：'+page_size)
+        print('安卓三次冷启动、认证保存重启读取与忘记、笔记工作台及进程存活验证通过，页大小：'+page_size)
     finally:
         for args,name in [(('logcat','-d'),'logcat.txt'),(('logcat','-d','-b','crash'),'crash.txt')]:
             try:(output/name).write_bytes(adb(*args))
