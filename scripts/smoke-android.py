@@ -4,9 +4,9 @@ def main():
     if os.environ.get('GITHUB_ACTIONS')!='true':raise RuntimeError('安卓原生启动测试仅在云端执行')
     output=pathlib.Path('test-results/android-startup');output.mkdir(parents=True,exist_ok=True)
     package='com.qingjian.notebook'
-    def adb(*args,timeout=60):
+    def adb(*args,timeout=60,missing_ok=False):
         result=subprocess.run(['adb',*args],capture_output=True,timeout=timeout)
-        if result.returncode:raise RuntimeError('安卓测试命令失败：'+result.stderr.decode(errors='replace'))
+        if result.returncode and not missing_ok:raise RuntimeError('安卓测试命令失败：'+result.stderr.decode(errors='replace'))
         return result.stdout
     try:
         page_size=adb('shell','getconf','PAGE_SIZE').decode().strip()
@@ -18,7 +18,7 @@ def main():
             (output/f'launch-{attempt}.txt').write_text(launch)
             if 'Error:' in launch:raise RuntimeError('安卓启动入口失败')
             time.sleep(10)
-            if not adb('shell','pidof',package).strip():raise RuntimeError('安卓应用启动后退出')
+            if not adb('shell','pidof',package,missing_ok=True).strip():raise RuntimeError('安卓应用启动后退出')
         ready=False
         for _ in range(6):
             adb('shell','uiautomator','dump','/sdcard/qingjian-window.xml')

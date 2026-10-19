@@ -482,6 +482,12 @@ impl Store {
     }
     pub fn dispatch(&mut self, action: &str, q: Value) -> Result<Value> {
         match action {
+            "appInfo" => Ok(json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "os": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+                "simulator": cfg!(target_abi = "sim")
+            })),
             "bootstrap" => {
                 if self.config["workspaces"].as_array().unwrap().is_empty() {
                     let w = self.create_workspace(&json!({"name":"个人笔记"}))?;

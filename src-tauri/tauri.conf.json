@@ -1,9 +1,9 @@
 {
  "$schema":"https://schema.tauri.app/config/2",
  "productName":"轻笺",
- "version":"0.0.1",
+ "version":"0.0.2",
  "identifier":"com.qingjian.notebook",
  "build":{"beforeDevCommand":"npm run serve", "beforeBuildCommand":"npm run build", "devUrl":"http://127.0.0.1:3415", "frontendDist":"../dist"},
- "app":{"windows":[{"title":"轻笺", "width":1380, "height":900, "minWidth":360, "minHeight":540}], "security":{"csp":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost http://127.0.0.1:3415; font-src 'self'", "capabilities":["main"]}},
+ "app":{"windows":[{"title":"轻笺", "width":1380, "height":900, "minWidth":360, "minHeight":540}], "security":{"csp":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src https://api.github.com ipc: http://ipc.localhost http://127.0.0.1:3415; font-src 'self'", "capabilities":["main"]}},
  "bundle":{"active":true,"targets":"all","shortDescription":"本地优先的跨平台笔记工具","longDescription":"使用本地文件和多个独立仓库保存笔记，提供中文块编辑、数据库视图、版本历史与笔记导入。","category":"Productivity","icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]}
 }

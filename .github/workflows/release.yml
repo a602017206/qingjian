@@ -6,7 +6,7 @@ on:
     inputs:
       tag:
         description: 已存在的版本标签
-        default: v0.0.1
+        default: v0.0.2
         required: true
 permissions:
   contents: read
@@ -48,9 +48,14 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.tag }}
     secrets: inherit
+  android-startup:
+    needs: prepare
+    uses: ./.github/workflows/android-startup.yml
+    with:
+      ref: ${{ needs.prepare.outputs.tag }}
   publish:
     name: 校验全部产物并发布
-    needs: [prepare,verify,desktop,mobile]
+    needs: [prepare,verify,desktop,mobile,android-startup]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

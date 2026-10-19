@@ -11,7 +11,7 @@ use std::{
 };
 
 pub fn configure_network(_root: &Path) -> Result<()> {
-    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[cfg(target_os = "linux")]
     {
         let path = _root.join("https-roots.pem");
         crate::atomic(&path, include_bytes!("../../../resources/ca-bundle.pem"))?;
@@ -19,12 +19,95 @@ pub fn configure_network(_root: &Path) -> Result<()> {
             git2::opts::set_ssl_cert_file(&path).map_err(err)?;
         }
     }
+    #[cfg(target_os = "android")]
+    {
+        static ROOTS: std::sync::OnceLock<Result<usize>> = std::sync::OnceLock::new();
+        // 安卓依赖禁用了文件证书接口，必须将根证书从内存加入信任库。
+        let result = ROOTS.get_or_init(|| {
+            // 先初始化共享库；此处不发起网络请求，也不关闭证书验证。
+            unsafe {
+                git2::opts::set_server_connect_timeout_in_milliseconds(15000).map_err(err)?;
+            }
+            load_root_certificates(
+                include_bytes!("../../../resources/ca-bundle.pem"),
+                |certificate| {
+                    let status = unsafe {
+                        libgit2_sys::git_libgit2_opts(
+                            libgit2_sys::GIT_OPT_ADD_SSL_X509_CERT as i32,
+                            certificate,
+                        )
+                    };
+                    if status < 0 {
+                        Err(err(git2::Error::last_error(status)))
+                    } else {
+                        Ok(())
+                    }
+                },
+            )
+        });
+        result.as_ref().map_err(Clone::clone)?;
+    }
     unsafe {
         git2::opts::set_server_connect_timeout_in_milliseconds(15000).map_err(err)?;
         git2::opts::set_server_timeout_in_milliseconds(60000).map_err(err)?;
     }
     Ok(())
 }
+#[cfg(any(target_os = "android", all(test, unix)))]
+fn load_root_certificates(
+    bundle: &[u8],
+    mut add: impl FnMut(*mut openssl_sys::X509) -> Result<()>,
+) -> Result<usize> {
+    struct Certificate(*mut openssl_sys::X509);
+    impl Drop for Certificate {
+        fn drop(&mut self) {
+            unsafe {
+                openssl_sys::X509_free(self.0);
+            }
+        }
+    }
+    let text = std::str::from_utf8(bundle).map_err(|_| "根证书编码无效")?;
+    let begin = "-----BEGIN CERTIFICATE-----";
+    let finish = "-----END CERTIFICATE-----";
+    let mut cursor = 0;
+    let mut count = 0;
+    openssl_sys::init();
+    while let Some(offset) = text[cursor..].find(begin) {
+        let start = cursor + offset;
+        let end = start + text[start..].find(finish).ok_or("根证书内容截断")? + finish.len();
+        let pem = &bundle[start..end];
+        let certificate = unsafe {
+            let bio = openssl_sys::BIO_new_mem_buf(
+                pem.as_ptr().cast(),
+                pem.len().try_into().map_err(|_| "根证书过大")?,
+            );
+            if bio.is_null() {
+                return Err("无法分配根证书缓冲区".into());
+            }
+            let certificate = openssl_sys::PEM_read_bio_X509(
+                bio,
+                std::ptr::null_mut(),
+                None,
+                std::ptr::null_mut(),
+            );
+            openssl_sys::BIO_free_all(bio);
+            if certificate.is_null() {
+                openssl_sys::ERR_clear_error();
+                return Err("根证书解析失败".into());
+            }
+            Certificate(certificate)
+        };
+        // 信任库保留自己的引用；本地对象在成功、失败或展开时释放。
+        add(certificate.0)?;
+        count += 1;
+        cursor = end;
+    }
+    if count == 0 {
+        return Err("根证书包为空".into());
+    }
+    Ok(count)
+}
+
 pub(crate) fn validate_remote(remote: &str) -> Result<()> {
     if remote.is_empty() {
         return Ok(());
@@ -357,4 +440,35 @@ pub(crate) fn restore_page_assets(dir: &Path, page: &Value, oid: &str) -> Result
         crate::atomic(&path, blob.content())?;
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod network_tests {
+    use super::*;
+    #[test]
+    fn certificate_bundle_is_loaded_from_memory_without_file_io() {
+        let mut count = 0;
+        let loaded =
+            load_root_certificates(include_bytes!("../../../resources/ca-bundle.pem"), |_| {
+                count += 1;
+                Ok(())
+            })
+            .unwrap();
+        assert!(loaded > 100);
+        assert_eq!(loaded, count);
+    }
+    #[test]
+    fn malformed_or_rejected_memory_certificates_stop_network_setup() {
+        assert!(load_root_certificates(b"not a certificate", |_| Ok(())).is_err());
+        assert!(load_root_certificates(
+            b"-----BEGIN CERTIFICATE-----\ninvalid\n-----END CERTIFICATE-----",
+            |_| Ok(())
+        )
+        .is_err());
+        let result =
+            load_root_certificates(include_bytes!("../../../resources/ca-bundle.pem"), |_| {
+                Err("拒绝装载".into())
+            });
+        assert_eq!(result.unwrap_err(), "拒绝装载");
+    }
 }

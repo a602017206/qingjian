@@ -2310,14 +2310,16 @@ checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
 name = "notebook-core"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",
  "csv",
  "ego-tree",
  "git2",
+ "libgit2-sys",
  "libz-sys",
+ "openssl-sys",
  "percent-encoding",
  "regex",
  "scraper",
@@ -2967,7 +2969,7 @@ dependencies = [
 
 [[package]]
 name = "qingjian"
-version = "0.0.1"
+version = "0.0.2"
 dependencies = [
  "notebook-core",
  "serde_json",
