@@ -128,23 +128,44 @@ pub(crate) fn validate_remote(remote: &str) -> Result<()> {
     };
     Ok(())
 }
-fn callbacks<'a>(username: &'a str, token: &'a str) -> RemoteCallbacks<'a> {
+fn scoped_credential(
+    remote: &str,
+    requested: &str,
+    username: &str,
+    token: &str,
+    allowed: CredentialType,
+) -> std::result::Result<Cred, git2::Error> {
+    let configured =
+        url::Url::parse(remote).map_err(|_| git2::Error::from_str("认证目标地址无效"))?;
+    let target =
+        url::Url::parse(requested).map_err(|_| git2::Error::from_str("认证请求地址无效"))?;
+    if configured.scheme() != "https"
+        || target.scheme() != "https"
+        || configured.origin() != target.origin()
+    {
+        return Err(git2::Error::from_str(
+            "认证请求不属于已配置的仓库站点，已拒绝发送令牌",
+        ));
+    }
+    if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) && !token.is_empty() {
+        Cred::userpass_plaintext(
+            if username.is_empty() {
+                "oauth2"
+            } else {
+                username
+            },
+            token,
+        )
+    } else {
+        Err(git2::Error::from_str(
+            "私有仓库需要访问令牌，请在工作区设置中填写本次会话认证",
+        ))
+    }
+}
+fn callbacks<'a>(remote: &'a str, username: &'a str, token: &'a str) -> RemoteCallbacks<'a> {
     let mut c = RemoteCallbacks::new();
-    c.credentials(move |_, _, allowed| {
-        if allowed.contains(CredentialType::USER_PASS_PLAINTEXT) && !token.is_empty() {
-            Cred::userpass_plaintext(
-                if username.is_empty() {
-                    "oauth2"
-                } else {
-                    username
-                },
-                token,
-            )
-        } else {
-            Err(git2::Error::from_str(
-                "私有仓库需要访问令牌，请在工作区设置中填写本次会话认证",
-            ))
-        }
+    c.credentials(move |requested, _, allowed| {
+        scoped_credential(remote, requested, username, token, allowed)
     });
     let started = Instant::now();
     c.transfer_progress(move |_| started.elapsed() < Duration::from_secs(90));
@@ -165,7 +186,7 @@ pub(crate) fn clone_repo(
     token: &str,
 ) -> Result<()> {
     let mut f = FetchOptions::new();
-    f.remote_callbacks(callbacks(user, token));
+    f.remote_callbacks(callbacks(remote, user, token));
     RepoBuilder::new()
         .branch(branch)
         .fetch_options(f)
@@ -265,7 +286,11 @@ pub(crate) fn sync(dir: &Path, w: &Value, user: &str, token: &str) -> Result<Val
     let refname = format!("refs/heads/{branch}");
     let exists = {
         let connection = remote
-            .connect_auth(Direction::Fetch, Some(callbacks(user, token)), None)
+            .connect_auth(
+                Direction::Fetch,
+                Some(callbacks(text(w, "remote"), user, token)),
+                None,
+            )
             .map_err(|e| format!("连接远程失败，请检查网络和认证：{}", e.message()))?;
         connection
             .list()
@@ -276,7 +301,7 @@ pub(crate) fn sync(dir: &Path, w: &Value, user: &str, token: &str) -> Result<Val
     if exists {
         let tracking = format!("refs/remotes/origin/{branch}");
         let mut options = FetchOptions::new();
-        options.remote_callbacks(callbacks(user, token));
+        options.remote_callbacks(callbacks(text(w, "remote"), user, token));
         remote
             .fetch(
                 &[&format!("+{refname}:{tracking}")],
@@ -312,7 +337,7 @@ pub(crate) fn sync(dir: &Path, w: &Value, user: &str, token: &str) -> Result<Val
         }
     }
     let mut push = PushOptions::new();
-    push.remote_callbacks(callbacks(user, token));
+    push.remote_callbacks(callbacks(text(w, "remote"), user, token));
     remote
         .push(&[&format!("{refname}:{refname}")], Some(&mut push))
         .map_err(|e| format!("推送失败，本地版本已保留：{}", e.message()))?;
@@ -470,5 +495,24 @@ mod network_tests {
                 Err("拒绝装载".into())
             });
         assert_eq!(result.unwrap_err(), "拒绝装载");
+    }
+}
+
+#[cfg(test)]
+mod credential_scope_tests {
+    use super::*;
+    #[test]
+    fn credentials_are_only_returned_to_the_configured_https_origin() {
+        let allowed = CredentialType::USER_PASS_PLAINTEXT;
+        let configured = "https://github.com/example/notes.git";
+        assert!(scoped_credential(configured, configured, "user", "test-token", allowed).is_ok());
+        for target in [
+            "https://gitlab.com/example/notes.git",
+            "http://github.com/example/notes.git",
+            "https://github.com:444/example/notes.git",
+            "not a url",
+        ] {
+            assert!(scoped_credential(configured, target, "user", "test-token", allowed).is_err());
+        }
     }
 }

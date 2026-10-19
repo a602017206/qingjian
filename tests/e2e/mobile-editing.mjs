@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+import { spawn } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+const addr='127.0.0.1:3441',base=`http://${addr}`;
+const server=spawn(path.resolve(`target/debug/server${process.platform==='win32'?'.exe':''}`),[],{env:{...process.env,QINGJIAN_DEV_ADDR:addr,QINGJIAN_DATA_DIR:path.resolve('.test-data',`mobile-editing-${Date.now()}`)},stdio:'pipe'});
+let browser,workspaceId;
+const api=async(action,data={})=>{const result=await(await fetch(`${base}/api/${action}`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({workspaceId,...data})})).json();if(result.error)throw new Error(result.error);return result.data;};
+try{
+ await mkdir('test-results',{recursive:true});for(let i=0;i<100;i++){try{if((await fetch(base)).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));}
+ workspaceId=(await api('createWorkspace',{name:'手机触控验证'})).id;
+ const note=await api('save',{page:{title:'手机编辑',blocks:[{id:'fold',type:'toggle',text:'折叠资料'},{id:'nested',type:'paragraph',text:'嵌套原文',parentId:'fold'},{id:'last',type:'paragraph',text:'待整理内容'}]}});
+ const database=await api('save',{page:{title:'手机观影记录',blocks:[],database:{columns:[{id:'name',name:'名称',type:'text'},{id:'status',name:'观看状态',type:'status',options:['观看中','已完成']},{id:'tags',name:'类型',type:'multiselect',options:['电影','动画']},{id:'memo',name:'备注',type:'text'}],rows:[{id:'first',values:{name:'入青云',status:'观看中',tags:'["电影"]',memo:'原始说明'}},{id:'second',values:{name:'牧神记',status:'观看中'}}]}}});
+ browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});
+ const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
+ await context.addInitScript(()=>{Object.defineProperty(window.visualViewport,'height',{get:()=>window.__keyboardHeight??window.innerHeight});Object.defineProperty(window.visualViewport,'offsetTop',{get:()=>window.__keyboardTop??0});});
+ const page=await context.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));page.setDefaultTimeout(8000);
+ await page.goto(`${base}/?workspace=${workspaceId}&page=${database.id}`);await page.waitForSelector('.database-table');
+ const title=page.locator('.mobile-record-open[data-id="first"]');assert.equal(await title.count(),1,'手机表格标题应提供直接打开记录的入口');
+ const hit=await title.boundingBox();assert.ok(hit.height>=44,'记录入口触控高度至少四十四');await title.tap();await page.waitForSelector('.record-peek');
+ assert.ok(await page.locator('.record-peek').evaluate(el=>el.getBoundingClientRect().width===innerWidth));
+ await page.locator('.record-peek [data-action="closeRecordPeek"]').getAttribute('aria-label').then(value=>assert.equal(value,'返回数据库'));
+ await page.locator('.record-peek [data-action="selectValues"][data-column="status"]').tap();
+ await page.waitForTimeout(80);assert.notEqual(await page.evaluate(()=>document.activeElement?.id),'selection-search','手机选择属性时不自动弹键盘');
+ const keyboard=async height=>page.evaluate(height=>{window.__keyboardHeight=height;window.visualViewport.dispatchEvent(new Event('resize'));},height);
+ await keyboard(420);await page.waitForTimeout(80);assert.ok(await page.locator('.property-popover').evaluate(el=>{const r=el.getBoundingClientRect();return r.top>=0&&r.bottom<=421;}),'属性面板必须位于软键盘上方');
+ await page.locator('[data-option-value="已完成"]').tap();await keyboard(844);await page.waitForTimeout(700);
+ assert.equal((await api('pages')).find(p=>p.id===database.id).database.rows[0].values.status,'已完成');
+ await page.locator('.record-peek .record-property-name[data-column="status"]').tap();assert.ok(await page.locator('.property-context-menu').evaluate(el=>el.getBoundingClientRect().bottom>innerHeight-35));await page.locator('.property-context-menu [data-action="editColumn"]').tap();await page.locator('#column-form [name="name"]').fill('观看进度');await page.locator('#column-form [type="submit"]').tap();await page.waitForSelector('#column-form',{state:'detached'});
+ await page.locator('.record-peek [data-action="selectValues"][data-column="tags"]').tap();await page.locator('#selection-form input[value="动画"]').check();await page.locator('#selection-form [type="submit"]').tap();
+ await page.locator('.record-peek input[aria-label="备注"]').fill('触控修改');await page.locator('.record-peek [data-action="closeRecordPeek"]').tap();await page.waitForSelector('.record-peek',{state:'detached'});
+ assert.equal((await api('pages')).find(p=>p.id===database.id).database.rows[0].values.memo,'触控修改');
+ await page.locator('.database-toolbar [data-action="newRow"]').tap();await page.waitForSelector('#row-title');await page.locator('#row-title').fill('手机新增记录');await page.locator('.record-peek [data-action="closeRecordPeek"]').tap();
+ assert.ok((await api('pages')).find(p=>p.id===database.id).database.rows.some(r=>r.values.name==='手机新增记录'));
+ await page.screenshot({path:'test-results/手机数据库触控入口.png',animations:'disabled'});
+ await page.goto(`${base}/?workspace=${workspaceId}&page=${note.id}`);await page.waitForSelector('.editor [data-block-id="fold"]');
+ const handle=page.locator('[data-block-id="last"] > .block-controls .drag-handle');const box=await handle.boundingBox();assert.ok(box.width>=44&&box.height>=44,'内容块操作入口需要完整触控热区');await handle.tap();
+ await page.waitForSelector('.block-popover');assert.ok(await page.locator('.block-popover').evaluate(el=>el.getBoundingClientRect().bottom>innerHeight-35),'手机动作菜单应从底部展开');
+ await keyboard(420);await page.waitForTimeout(80);assert.ok(await page.locator('.block-popover').evaluate(el=>el.getBoundingClientRect().bottom<=421));await keyboard(844);
+ await page.locator('[data-block-operation="blockInsertAfter"]').tap();await page.locator('.block-popover [data-type="todo"]').tap();await page.waitForSelector('.block-todo .block-input');await page.locator('.block-todo .block-input').fill('手机新增待办');
+ await page.locator('[data-block-id="fold"] [data-action="toggleBlock"]').tap();assert.equal(await page.locator('[data-block-id="nested"]').isVisible(),false);
+ await page.locator('.block-todo > .block-controls .drag-handle').tap();await page.screenshot({path:'test-results/手机内容块底部操作.png',animations:'disabled'});await page.locator('.block-popover [data-block-menu-close]').tap();
+ if(await page.locator('[data-selection-action="clear"]').count())await page.locator('[data-selection-action="clear"]').tap();await page.locator('.editor-toolbar [data-action="toggleBlockSelection"]').tap();await page.locator('[data-block-id="last"] > .block-controls [data-block-select]').tap();await page.locator('.block-todo > .block-controls [data-block-select]').tap();assert.match(await page.locator('.block-selection-toolbar strong').innerText(),/2/);await page.locator('[data-selection-action="duplicate"]').tap();
+ await page.locator('[data-selection-action="clear"]').tap();await page.setViewportSize({width:320,height:640});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'小屏页面不能整体横向溢出');
+ await page.setViewportSize({width:390,height:844});await keyboard(420);await page.locator('[data-edit="last"]').tap();await page.locator('[data-input-block="last"]').fill('/折叠');await page.waitForSelector('.block-popover [data-type="toggle"]');assert.ok(await page.locator('.block-popover').evaluate(el=>{const rect=el.getBoundingClientRect();return rect.top>=0&&rect.bottom<=421;}),'斜线菜单也必须避开键盘');await page.locator('.block-popover [data-type="toggle"]').tap();assert.ok(await page.locator('[data-block-id="last"]').evaluate(el=>el.classList.contains('block-toggle')));await keyboard(844);
+ assert.deepEqual(errors,[]);console.log('手机触控记录、属性键盘避让、新建记录、内容块底部菜单、折叠多选和斜线菜单通过');
+}finally{await browser?.close();server.kill('SIGTERM');}

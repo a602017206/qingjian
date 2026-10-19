@@ -1,6 +1,6 @@
 {
   "name": "qingjian",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -34,7 +34,9 @@
     "test:e2e:markdown-paste": "cargo build --locked -p notebook-core --bin server && node tests/e2e/markdown-paste.mjs",
     "test:e2e:database-views": "cargo build --locked -p notebook-core --bin server && node tests/e2e/database-views.mjs && node tests/e2e/database-view-safety.mjs",
     "test:e2e:editor": "cargo build --locked -p notebook-core --bin server && node tests/e2e/editor-blocks.mjs && node tests/e2e/editor-safety.mjs && node tests/e2e/editor-layout.mjs && node tests/e2e/editor-layout-safety.mjs",
-    "test:e2e:updates": "cargo build --locked -p notebook-core --bin server && node tests/e2e/updates.mjs"
+    "test:e2e:updates": "cargo build --locked -p notebook-core --bin server && node tests/e2e/updates.mjs",
+    "test:e2e:mobile": "cargo build --locked -p notebook-core --bin server && node tests/e2e/mobile-editing.mjs",
+    "test:e2e:sync-setup": "cargo build --locked -p notebook-core --bin server && node tests/e2e/sync-onboarding.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.0",

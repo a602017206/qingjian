@@ -527,6 +527,9 @@ impl Store {
                 };
                 git::validate_remote(text(new, "remote"))?;
                 let repo = git2::Repository::open(dir).map_err(err)?;
+                if text(new, "remote") != text(&old, "remote") {
+                    self.credentials.remove(text(new, "id"));
+                }
                 if text(new, "remote").is_empty() {
                     if repo.find_remote("origin").is_ok() {
                         repo.remote_delete("origin").map_err(err)?;
@@ -651,4 +654,36 @@ fn seed_pages() -> Vec<Value> {
         json!({"title":"项目看板","icon":"🗂️","tags":["计划"],"database":{"columns":[{"id":"name","name":"任务名称","type":"text"},{"id":"status","name":"状态","type":"select","options":["待开始","进行中","已完成"]},{"id":"priority","name":"优先级","type":"select","options":["高","中","低"]},{"id":"date","name":"日期","type":"date"}],"rows":[{"id":uid(),"values":{"name":"整理想法与需求","status":"已完成","priority":"高"}},{"id":uid(),"values":{"name":"搭建个人知识库","status":"进行中","priority":"高"}},{"id":uid(),"values":{"name":"整理阅读笔记","status":"待开始","priority":"中"}}]},"blocks":[]}),
         json!({"title":"随手记","icon":"💡","tags":["灵感"],"blocks":markdown::parse("想到什么，就记下来。暂时不用分类，也不必写得完整。")}),
     ]
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+
+    #[test]
+    fn changing_remote_discards_session_credentials_but_renaming_preserves_them() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = Store::new(root.path()).unwrap();
+        let mut workspace = store.dispatch("createWorkspace", json!({"name":"同步验证","remote":"https://github.com/example/notes.git","token":"anonymous-test-token"})).unwrap();
+        let id = text(&workspace, "id").to_owned();
+        workspace["name"] = json!("名称修改");
+        store
+            .dispatch(
+                "updateWorkspace",
+                json!({"workspaceId":id,"workspace":workspace}),
+            )
+            .unwrap();
+        assert!(store.credentials.contains_key(&id));
+        workspace["remote"] = json!("https://gitlab.com/example/notes.git");
+        store
+            .dispatch(
+                "updateWorkspace",
+                json!({"workspaceId":id,"workspace":workspace}),
+            )
+            .unwrap();
+        assert!(
+            !store.credentials.contains_key(&id),
+            "更换远程不能向新站点复用旧认证"
+        );
+    }
 }
