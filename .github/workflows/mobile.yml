@@ -1,17 +1,35 @@
 name: 安卓与苹果移动端构建
 on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+    secrets:
+      ANDROID_KEYSTORE_BASE64:
+        required: true
+      ANDROID_KEYSTORE_PASSWORD:
+        required: true
+      ANDROID_KEY_ALIAS:
+        required: true
   workflow_dispatch:
-  push:
-    tags: ['v*']
+    inputs:
+      ref:
+        description: 源码分支或标签
+        default: main
+        required: true
 permissions:
   contents: read
 jobs:
   android:
-    name: 安卓调试安装包
+    name: 安卓固定签名发布包
+    timeout-minutes: 90
     runs-on: ubuntu-24.04
     steps:
       - name: 读取项目
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - name: 配置运行环境
         uses: actions/setup-node@v4
         with:
@@ -38,22 +56,45 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: 安装界面依赖
         run: npm ci
+      - name: 校验统一版本
+        run: node scripts/release.mjs check-version
       - name: 生成原生安卓工程
         run: npm run tauri -- android init --ci --skip-targets-install
-      - name: 构建安卓应用
+      - name: 构建安卓发布应用
         run: npm run mobile:android
+      - name: 固定签名与安装包校验
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: node scripts/sign-android.mjs
       - name: 保存安卓安装包
         uses: actions/upload-artifact@v4
         with:
-          name: qingjian-android-debug
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          name: qingjian-release-android
+          path: artifacts/release/*
           if-no-files-found: error
   ios:
-    name: 苹果移动端模拟器应用
+    name: ${{ matrix.label }}
+    timeout-minutes: 90
     runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: simulator
+            command: ios
+            target: aarch64-apple-ios-sim
+            label: 苹果模拟器应用
+          - kind: device
+            command: ios-device
+            target: aarch64-apple-ios
+            label: 苹果未签名真机包
     steps:
       - name: 读取项目
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - name: 配置运行环境
         uses: actions/setup-node@v4
         with:
@@ -62,20 +103,22 @@ jobs:
       - name: 配置原生编译工具
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios-sim
+          targets: ${{ matrix.target }}
       - name: 缓存编译结果
         uses: Swatinem/rust-cache@v2
       - name: 安装界面依赖
         run: npm ci
+      - name: 校验统一版本
+        run: node scripts/release.mjs check-version
       - name: 生成原生苹果工程
         run: npm run tauri -- ios init --ci --skip-targets-install
-      - name: 构建模拟器应用
-        run: npm run mobile:ios
-      - name: 打包模拟器应用
-        run: python3 scripts/package-ios.py
-      - name: 保存模拟器安装文件
+      - name: 无付费证书构建苹果应用
+        run: npm run mobile:${{ matrix.command }}
+      - name: 区分平台并校验打包
+        run: python3 scripts/package-ios.py --kind ${{ matrix.kind }}
+      - name: 保存苹果移动产物
         uses: actions/upload-artifact@v4
         with:
-          name: qingjian-ios-simulator
-          path: artifacts/qingjian-ios-simulator.zip
+          name: qingjian-release-ios-${{ matrix.kind }}
+          path: artifacts/release/*
           if-no-files-found: error

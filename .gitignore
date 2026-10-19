@@ -15,3 +15,10 @@ playwright-report/
 coverage.out
 
 __pycache__/
+
+*.jks
+*.keystore
+.env
+.env.*
+
+.release-secrets/

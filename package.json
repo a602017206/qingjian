@@ -1,7 +1,8 @@
 {
   "name": "qingjian",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
@@ -16,6 +17,8 @@
     "test:e2e": "cargo build --locked -p notebook-core --bin server && node tests/e2e/full.mjs",
     "mobile:android": "node scripts/mobile-ci.mjs android",
     "mobile:ios": "node scripts/mobile-ci.mjs ios",
+    "mobile:ios-device": "node scripts/mobile-ci.mjs ios-device",
+    "release:check": "node scripts/release.mjs check-version",
     "test:e2e:database": "cargo build --locked -p notebook-core --bin server && node tests/e2e/database.mjs",
     "test:e2e:import-layout": "cargo build --locked -p notebook-core --bin server && node tests/e2e/import-layout.mjs",
     "test:e2e:trash": "cargo build --locked -p notebook-core --bin server && node tests/e2e/trash-cleanup.mjs",

@@ -1,7 +1,7 @@
 {
  "$schema":"https://schema.tauri.app/config/2",
  "productName":"轻笺",
- "version":"0.1.0",
+ "version":"0.0.1",
  "identifier":"com.qingjian.notebook",
  "build":{"beforeDevCommand":"npm run serve", "beforeBuildCommand":"npm run build", "devUrl":"http://127.0.0.1:3415", "frontendDist":"../dist"},
  "app":{"windows":[{"title":"轻笺", "width":1380, "height":900, "minWidth":360, "minHeight":540}], "security":{"csp":"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ipc: http://ipc.localhost http://127.0.0.1:3415; font-src 'self'", "capabilities":["main"]}},

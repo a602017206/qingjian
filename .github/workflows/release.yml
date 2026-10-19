@@ -1,0 +1,88 @@
+name: 标签版本发布
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的版本标签
+        default: v0.0.1
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  prepare:
+    name: 核对标签与统一版本
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 核对版本
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: node scripts/release.mjs check-version
+  verify:
+    needs: prepare
+    uses: ./.github/workflows/verify.yml
+    with:
+      ref: ${{ needs.prepare.outputs.tag }}
+  desktop:
+    needs: prepare
+    uses: ./.github/workflows/desktop.yml
+    with:
+      ref: ${{ needs.prepare.outputs.tag }}
+  mobile:
+    needs: prepare
+    uses: ./.github/workflows/mobile.yml
+    with:
+      ref: ${{ needs.prepare.outputs.tag }}
+    secrets: inherit
+  publish:
+    name: 校验全部产物并发布
+    needs: [prepare,verify,desktop,mobile]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 下载全部平台产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: qingjian-release-*
+          path: release-assets
+          merge-multiple: true
+      - name: 完整产物与摘要校验
+        run: node scripts/release.mjs verify-assets release-assets
+      - name: 创建版本草稿
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > release-state.txt; then
+            test "$(cat release-state.txt)" = true || { echo '已经发布的版本不可覆盖'; exit 1; }
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "轻笺 $RELEASE_VERSION" --notes-file "docs/发布说明/$RELEASE_VERSION.md"
+          fi
+      - name: 上传完整版本文件
+        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber
+      - name: 正式发布版本
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

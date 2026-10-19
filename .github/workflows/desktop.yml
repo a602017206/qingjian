@@ -1,33 +1,54 @@
 name: 桌面应用构建
 on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
   workflow_dispatch:
-  push:
-    tags: ['v*']
+    inputs:
+      ref:
+        description: 源码分支或标签
+        default: main
+        required: true
 permissions:
   contents: read
 jobs:
   desktop:
     name: ${{ matrix.label }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-15
-            label: 苹果桌面
+            label: 苹果桌面自研处理器
             bundle: app
-            artifact: macos
+            target: aarch64-apple-darwin
+            platform: macos-arm64
+          - os: macos-15-intel
+            label: 苹果桌面英特尔处理器
+            bundle: app
+            target: x86_64-apple-darwin
+            platform: macos-x64
           - os: windows-latest
-            label: 微软桌面
+            label: 微软桌面六十四位
             bundle: nsis
-            artifact: windows
-          - os: ubuntu-24.04
-            label: Linux桌面
-            bundle: deb
-            artifact: linux
+            target: x86_64-pc-windows-msvc
+            platform: windows
+          - os: ubuntu-22.04
+            label: 其他桌面系统六十四位
+            bundle: deb,appimage
+            target: x86_64-unknown-linux-gnu
+            platform: linux
     runs-on: ${{ matrix.os }}
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: '1'
     steps:
       - name: 读取项目
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
       - name: 配置运行环境
         uses: actions/setup-node@v4
         with:
@@ -35,27 +56,31 @@ jobs:
           cache: npm
       - name: 配置编译工具
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
       - name: 缓存编译结果
         uses: Swatinem/rust-cache@v2
       - name: 安装系统依赖
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils libssl-dev
       - name: 安装界面依赖
         run: npm ci
-      - name: 验证共享核心
-        run: cargo test --locked -p notebook-core
+      - name: 校验统一版本
+        run: node scripts/release.mjs check-version
       - name: 构建桌面安装包
-        run: npm run tauri -- build --bundles ${{ matrix.bundle }} -- --locked
+        run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
       - name: 苹果临时签名、完整性校验与中文分发说明
         if: runner.os == 'macOS'
-        run: npm run desktop:package:macos
-      - name: 保存安装包
+        run: npm run desktop:package:macos -- --app target/${{ matrix.target }}/release/bundle/macos/轻笺.app --output artifacts/${{ matrix.platform }}
+      - name: 整理苹果发布文件
+        if: runner.os == 'macOS'
+        run: node scripts/release.mjs collect ${{ matrix.platform }} artifacts/${{ matrix.platform }}/轻笺-苹果桌面.zip
+      - name: 整理其他桌面发布文件
+        if: runner.os != 'macOS'
+        run: node scripts/release.mjs collect ${{ matrix.platform }} target/${{ matrix.target }}/release/bundle
+      - name: 保存平台产物
         uses: actions/upload-artifact@v4
         with:
-          name: qingjian-${{ matrix.artifact }}
-          path: |
-            target/release/bundle/**/*.deb
-            target/release/bundle/**/*.exe
-            artifacts/轻笺-苹果桌面.zip
-            artifacts/轻笺-苹果桌面.zip.sha256
+          name: qingjian-release-${{ matrix.platform }}
+          path: artifacts/release/*
           if-no-files-found: error
