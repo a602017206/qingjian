@@ -7,7 +7,18 @@ import { t } from './i18n.mjs';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { pickedFilename } from './core.mjs';
 export const native = () => isTauri();
+const mutationListeners=new Set();let requestGate=null,saveRecovery=null;
+export const dataMutations=new Set(['save','trash','trashMany','purgeTrash','restore','import','attach','restoreSyncDraft','resolveSyncDraft']);
+export function watchMutations(listener){mutationListeners.add(listener);return ()=>mutationListeners.delete(listener);}
+export function setRequestGate(gate){requestGate=gate;}
+export function setSaveRecovery(recover){saveRecovery=recover;}
 export async function api(action,request={}){
+ if(requestGate)await requestGate(action,request);
+ let result;try{result=await callAPI(action,request);}catch(error){const retry=action==='save'&&saveRecovery?await saveRecovery(request,error):null;if(!retry)throw error;result=await callAPI(action,retry);}
+ if(dataMutations.has(action)||action==='credentials')for(const listener of mutationListeners){try{listener({action,workspaceId:request.workspaceId});}catch{}}
+ return result;
+}
+export async function callAPI(action,request={}){
  try{
   if(native())return await invoke('dispatch',{action,request});
   const response=await fetch(`/api/${action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(request)});

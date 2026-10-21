@@ -204,6 +204,20 @@ impl Store {
             return Err(e);
         }
         // 先记录删除意图，清理中断时仍能从列表重试；远程仓库不受影响。
+        let workspace_id = text(&archive["workspace"], "id");
+        if !crate::valid_id(workspace_id) {
+            return Err("归档工作区标识无效".into());
+        }
+        let backups = self.root.join("sync-draft-backups");
+        if backups.exists() {
+            ensure_dir(&backups)?;
+            let drafts = backups.join(workspace_id);
+            if drafts.exists() {
+                ensure_dir(&drafts)?;
+                fs::remove_dir_all(drafts)
+                    .map_err(|e| format!("同步草稿恢复点清理未完成，请重试：{e}"))?;
+            }
+        }
         let dir = self.root.join("archived-workspaces").join(id);
         if dir.exists() {
             fs::remove_dir_all(&dir)

@@ -1,3 +1,4 @@
+mod auto_sync;
 mod blocks;
 mod cleanup;
 mod credentials;
@@ -521,6 +522,11 @@ impl Store {
                 }
                 Ok(self.config.clone())
             }
+            "autoSyncSettings" => self.auto_sync_settings(&q),
+            "syncDraftPreview" => self.sync_draft_preview(&q),
+            "resolveSyncDraft" => self.resolve_sync_draft(&q, false),
+            "restoreSyncDraft" => self.resolve_sync_draft(&q, true),
+            "syncDraftBackups" => self.sync_draft_backups(&q),
             "createWorkspace" => self.create_workspace(&q),
             "removeWorkspacePreview" => self.remove_workspace_preview(&q),
             "removeWorkspace" => self.remove_workspace(&q),
