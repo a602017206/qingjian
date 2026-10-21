@@ -73,6 +73,7 @@ jobs:
           npm run test:e2e:credentials
           npm run test:e2e:gitee
           npm run test:e2e:auto-sync
+          npm run test:e2e:database-batch
       - name: 保存界面验证结果
         if: always()
         uses: actions/upload-artifact@v4
