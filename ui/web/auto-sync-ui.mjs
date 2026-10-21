@@ -5,12 +5,13 @@ import {escapeHTML as e} from './text.mjs';
 import {t} from './i18n.mjs';
 import {errorMessage} from './errors.mjs';
 export function createAutoSyncUI({state,recordDraft,workspace,flush,render,renderSaveState,modal,closeModal,toast,showSyncConflict,manualSync,applyConfig}){
- let network=null,conflicts=[],remoteConflict=null,composing=false;
+ let network=null,conflicts=[],remoteConflicts=new Map(),composing=false;
  const context=()=>({id:workspace()?.id,remote:workspace()?.remote,enabled:workspace()?.autoSync!==false,visible:!document.hidden,online:navigator.onLine!==false,busy:state.busy||!!document.querySelector('.modal,.property-popover')||composing||!!state.saving||!!recordDraft.saving});
+ const conflictKey=()=>context().id+'|'+context().remote;
  const controller=new AutoSyncController({context,run:async id=>{if(navigator.locks?.request)return navigator.locks.request('qingjian:auto-sync:'+id,{ifAvailable:true},lock=>lock?run(id):{status:'deferred'});return run(id);},onChange:redraw});
- function label(){const c=context();if(conflicts.length)return t('autoSyncNeedsChoice');return !c.remote?'':!c.enabled?t('autoSyncDisabled'):t({idle:'autoSyncWaiting',pending:'autoSyncWaiting',syncing:'autoSyncWorking',current:'autoSyncCurrent',error:'autoSyncRetryLater',offline:'autoSyncOffline',conflict:'autoSyncNeedsChoice',disabled:'autoSyncDisabled'}[controller.state.status]||'autoSyncWaiting');}
- function statusHTML(){return `<button type="button" class="auto-sync-status" data-action="autoSyncStatus" data-status="${controller.state.status}" ${!workspace()?.remote&&!conflicts.length?'hidden':''} title="${e(controller.state.error||label())}">${e(label())}</button>`;}
- function redraw(){for(const el of document.querySelectorAll('.auto-sync-status')){el.hidden=!workspace()?.remote&&!conflicts.length;el.textContent=label();el.dataset.status=controller.state.status;el.title=controller.state.error||label();}}
+ function label(){const c=context();if(conflicts.length)return t('autoSyncNeedsChoice');return !c.remote?'':!c.enabled?t('autoSyncDisabled'):t({idle:'autoSyncWaiting',pending:'autoSyncWaiting',syncing:'autoSyncWorking',current:'autoSyncCurrent',error:'autoSyncRetryLater',offline:'autoSyncOffline',conflict:'autoSyncNeedsChoice',disabled:'autoSyncDisabled'}[controller.entry().status]||'autoSyncWaiting');}
+ function statusHTML(){return `<button type="button" class="auto-sync-status" data-action="autoSyncStatus" data-status="${controller.entry().status}" ${!workspace()?.remote&&!conflicts.length?'hidden':''} title="${e(controller.entry().error||label())}">${e(label())}</button>`;}
+ function redraw(){for(const el of document.querySelectorAll('.auto-sync-status')){el.hidden=!workspace()?.remote&&!conflicts.length;el.textContent=label();el.dataset.status=controller.entry().status;el.title=controller.entry().error||label();}}
  setRequestGate(async action=>{if(network&&(dataMutations.has(action)||['sync','resolveSync','activate','updateWorkspace','removeWorkspace','autoSyncSettings'].includes(action)))await network;});
  setSaveRecovery(async(request,error)=>{
   if(request.workspaceId!==context().id||network)return null;
@@ -49,18 +50,18 @@ export function createAutoSyncUI({state,recordDraft,workspace,flush,render,rende
    const listChanged=JSON.stringify(state.pages)!==JSON.stringify(pages);state.pages=pages;state.stats=stats;state.status=status;rememberDraft();
    for(const conflict of conflicts){conflict.sourceCommit=sourceCommit;conflict.preview=await callAPI('syncDraftPreview',{workspaceId:id,draft:conflict.draft,sourceCommit});}
    if(conflicts.length){controller.pause();result={status:'conflict'};}
-   else if(result?.status==='conflict')remoteConflict=result;
+   else if(result?.status==='conflict')remoteConflicts.set(conflictKey(),result);else if(!syncError)remoteConflicts.delete(conflictKey());
    if(!state.dirty&&!recordDraft.dirty&&(rerender||listChanged)){render();if(block){const open=new CustomEvent('qingjian:restore-editor',{detail:{block,caret,end}});document.dispatchEvent(open);}}
    renderSaveState();
   }finally{network=null;unlock();}
-  if(result?.status==='conflict'){controller.pause();if(!state.dirty&&!recordDraft.dirty&&!document.querySelector('.modal,.property-popover')){if(remoteConflict)showSyncConflict(remoteConflict);else showPending();}}
+  if(result?.status==='conflict'){controller.pause();if(!state.dirty&&!recordDraft.dirty&&!document.querySelector('.modal,.property-popover')){if(remoteConflicts.has(conflictKey()))showSyncConflict(remoteConflicts.get(conflictKey()));else showPending();}}
   else if(state.dirty||recordDraft.dirty){await flush();controller.request('edit');}
   if(syncError&&result?.status!=='conflict')throw syncError;return result;
  }
  async function showPending(){
   if(conflicts.length){await showDraftConflict();return;}
-  if(remoteConflict){await manualSync();return;}
-  modal(t('autoSyncTitle'),`<p>${e(label())}</p>${controller.state.error?`<p class="report-warning">${e(controller.state.error)}</p>`:''}<p class="form-hint">${t('autoSyncHint')}</p><div class="modal-footer"><button class="button" data-action="autoSyncRetry">${t('autoSyncRetry')}</button></div>`);
+  if(remoteConflicts.has(conflictKey())){await manualSync();return;}
+  modal(t('autoSyncTitle'),`<p>${e(label())}</p>${controller.entry().error?`<p class="report-warning">${e(controller.entry().error)}</p>`:''}<p class="form-hint">${t('autoSyncHint')}</p><div class="modal-footer"><button class="button" data-action="autoSyncRetry">${t('autoSyncRetry')}</button></div>`);
  }
  async function showDraftConflict(){
   if(state.busy||!conflicts.length)return;
@@ -73,7 +74,7 @@ export function createAutoSyncUI({state,recordDraft,workspace,flush,render,rende
    try{const choice=form.elements.choice.value,result=await callAPI('resolveSyncDraft',{workspaceId:id,backupId:preview.id,choice});if(id!==context().id)return;
     if(item.source==='page'){const previous=state.page?.id;state.dirty=false;state.page=choice==='copy'?preview.remote:result.page;if(!state.page||state.page.deleted){state.page=null;state.route='home';state.recordPeek=null;}else{state.page=structuredClone(state.page);state.route=state.page.id;}localStorage.removeItem(`qingjian:recovery:${id}:${previous}`);}
     else if(item.source==='record'){recordDraft.dirty=false;recordDraft.onChange();recordDraft.clear();}
-    conflicts.shift();state.saveError='';const pages=await callAPI('pages',{workspaceId:id});if(id!==context().id)return;state.pages=pages;if(!conflicts.length){remoteConflict=null;controller.resume();}closeModal();render();if(conflicts.length)await showDraftConflict();
+    conflicts.shift();state.saveError='';const pages=await callAPI('pages',{workspaceId:id});if(id!==context().id)return;state.pages=pages;if(!conflicts.length){remoteConflicts.delete(conflictKey());controller.resume();}closeModal();render();if(conflicts.length)await showDraftConflict();
    }catch(error){const target=form.querySelector('.sync-operation-error');target.hidden=false;target.textContent=errorMessage(error);}
    finally{state.busy=false;form.querySelector('[type=submit]').disabled=false;}
   };
@@ -94,5 +95,5 @@ export function createAutoSyncUI({state,recordDraft,workspace,flush,render,rende
  }
  document.addEventListener('compositionstart',()=>composing=true);document.addEventListener('compositionend',()=>composing=false);
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){controller.request('foreground');controller.tick();}});window.addEventListener('focus',()=>{controller.request('foreground');controller.tick();});window.addEventListener('online',()=>{controller.request('online');controller.tick();});
- return {controller,statusHTML,settingsHTML,bindSettings,showBackups,showPending,redraw,get network(){return network;},get draftBlocked(){return conflicts.length>0;},edit:()=>controller.request('edit'),start:()=>controller.start(),retry:()=>{closeModal();controller.resume();controller.tick();},acceptManual:result=>{if(result.status==='conflict'){remoteConflict=result;controller.pause();}else{remoteConflict=null;const entry=controller.entry();entry.paused=false;entry.failures=0;entry.retryAt=0;entry.pending=false;entry.status='current';entry.due=Date.now()+120000;controller.publish(entry);}}};
+ return {controller,statusHTML,settingsHTML,bindSettings,showBackups,showPending,redraw,get network(){return network;},get draftBlocked(){return conflicts.length>0;},edit:()=>controller.request('edit'),start:()=>controller.start(),retry:()=>{closeModal();controller.resume();controller.tick();},acceptManual:result=>{if(result.status==='conflict'){remoteConflicts.set(conflictKey(),result);controller.pause();}else{remoteConflicts.delete(conflictKey());const entry=controller.entry();entry.paused=false;entry.failures=0;entry.retryAt=0;entry.pending=false;entry.status='current';entry.due=Date.now()+120000;controller.publish(entry);}}};
 }
