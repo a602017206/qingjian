@@ -1,6 +1,6 @@
 {
   "name": "qingjian",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -43,6 +43,7 @@
     "test:e2e:auto-sync": "cargo build --locked -p notebook-core --bin server && node tests/e2e/auto-sync.mjs",
     "test:e2e:credentials": "cargo build --locked -p notebook-core --bin server && node tests/e2e/credentials.mjs",
     "test:e2e:editor-stability": "cargo build --locked -p notebook-core --bin server && node tests/e2e/editor-stability.mjs",
+    "test:e2e:editor-ime": "cargo build --locked -p notebook-core --bin server && node tests/e2e/editor-ime.mjs",
     "test:e2e:desktop-window": "cargo build --locked -p notebook-core --bin server && node tests/e2e/desktop-window.mjs"
   },
   "dependencies": {

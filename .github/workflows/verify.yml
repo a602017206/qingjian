@@ -77,6 +77,7 @@ jobs:
           npm run test:e2e:auto-sync
           npm run test:e2e:database-batch
           npm run test:e2e:editor-stability
+          npm run test:e2e:editor-ime
           npm run test:e2e:desktop-window
       - name: 保存界面验证结果
         if: always()
