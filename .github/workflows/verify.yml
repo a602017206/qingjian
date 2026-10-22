@@ -44,6 +44,8 @@ jobs:
         run: |
           cargo test --locked -p notebook-core
           cargo clippy --locked -p notebook-core --all-targets -- -D warnings
+          rustc --test src-tauri/src/desktop_actions.rs -o /tmp/qingjian-desktop-actions
+          /tmp/qingjian-desktop-actions
       - name: 安装中文测试字体
         run: sudo apt-get update && sudo apt-get install -y fonts-noto-cjk
       - name: 安装测试浏览器
@@ -74,6 +76,8 @@ jobs:
           npm run test:e2e:gitee
           npm run test:e2e:auto-sync
           npm run test:e2e:database-batch
+          npm run test:e2e:editor-stability
+          npm run test:e2e:desktop-window
       - name: 保存界面验证结果
         if: always()
         uses: actions/upload-artifact@v4

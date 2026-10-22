@@ -94,3 +94,10 @@ export function prepareMarkdownPaste(block,value,start=0,end=start){
 }
 
 export function isMarkdownSourceBlock(block){if(block.type==='code')return true;if(block.type!=='paragraph')return false;if(block.markdownDocument)return true;const env={},tokens=md.parse(String(block.text||''),env);return !!env.references||tokens.some(token=>['fence','code_block','heading_open','bullet_list_open','ordered_list_open','blockquote_open','table_open','hr'].includes(token.type));}
+
+
+export function renderBlockText(block,pages=[]){
+ if(block.type==='code')return e(block.text||'');
+ if(block.type==='paragraph'&&isMarkdownSourceBlock(block))return renderMarkdown(block.text,pages);
+ const source=String(block.text||'');return source.split('\n').map(line=>inlineMarkdown(line,pages)).join('<br>')+(source.endsWith('\n')?'<span class="block-trailing-line" aria-hidden="true"></span>':'');
+}

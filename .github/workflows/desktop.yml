@@ -67,6 +67,8 @@ jobs:
         run: npm ci
       - name: 校验统一版本
         run: node scripts/release.mjs check-version
+      - name: 验证桌面窗口动作保护
+        run: cargo test --locked -p qingjian --lib --target ${{ matrix.target }}
       - name: 构建桌面安装包
         run: npm run tauri -- build --target ${{ matrix.target }} --bundles ${{ matrix.bundle }} -- --locked
       - name: 苹果临时签名、完整性校验与中文分发说明

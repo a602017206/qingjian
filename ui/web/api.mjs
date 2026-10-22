@@ -1,3 +1,4 @@
+import { listen } from '@tauri-apps/api/event';
 import {operationError} from './errors.mjs';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke, isTauri } from '@tauri-apps/api/core';
@@ -47,3 +48,10 @@ export async function openPageWindow(url,title){
  const win=new WebviewWindow('note-'+crypto.randomUUID(),{url:parsed.pathname+parsed.search,title: t('app')+' · '+title,width:1200,height:850,minWidth:360,minHeight:540});
  await new Promise((resolve,reject)=>{win.once('tauri://created',resolve);win.once('tauri://error',()=>reject(new Error(t('newWindowFailed'))));});
 }
+
+export const listenDesktopActions=listener=>listen('qingjian-desktop-actions',listener);
+export const pendingDesktopActions=()=>invoke('desktop_pending');
+export const completeDesktopAction=(id,success)=>invoke('desktop_complete',{id,success});
+export const setDesktopLocale=locale=>invoke('desktop_locale',{locale});
+
+export const listenDesktopResume=listener=>listen('qingjian-desktop-resume',listener);
