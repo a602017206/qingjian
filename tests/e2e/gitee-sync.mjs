@@ -8,11 +8,11 @@ try{
  browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{channel:'chrome'}:{})});
  for(const phone of [false,true]){
   const w=await api('createWorkspace',{name:phone?'手机测试':'桌面测试'}),page=await browser.newPage({viewport:phone?{width:390,height:844}:{width:1360,height:960},isMobile:phone,hasTouch:phone});const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.addInitScript(({remote})=>{window.isTauri=true;window.nativeSyncCalls=0;window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{
-   if(cmd!=='dispatch')throw '测试环境不调用原生插件';if(args.action==='sync'){window.nativeSyncCalls++;throw '连接远程失败：Gitee 帐号或私人令牌不正确';}
+  await page.addInitScript(({remote,phone})=>{window.isTauri=true;window.nativeSyncCalls=0;window.__TAURI_INTERNALS__={transformCallback:()=>1,invoke:async(cmd,args)=>{
+   if(cmd==='desktop_pending')return [];if(cmd==='desktop_locale')return null;if(cmd==='plugin:event|listen')return 1;if(cmd!=='dispatch')throw '测试环境不调用原生插件';if(args.action==='sync'){window.nativeSyncCalls++;throw '连接远程失败：Gitee 帐号或私人令牌不正确';}
    const request={...args.request};if(args.action==='createWorkspace'&&request.mode==='clone')request.remote=remote;
-   const result=await(await fetch('/api/'+args.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(request)})).json();if(result.error)throw result.error;return result.data;
-  }};},{remote});
+   const result=await(await fetch('/api/'+args.action,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(request)})).json();if(result.error)throw result.error;return args.action==='appInfo'?{...result.data,os:phone?'android':'macos'}:result.data;
+  }};},{remote,phone});
   await page.route('https://api.github.com/**',route=>route.fulfill({status:503,body:'测试环境不访问更新服务'}));await page.goto(`${base}/?workspace=${w.id}`);await page.waitForSelector('.home-heading');await page.locator('.topbar [data-action="sync"]').click();await page.waitForSelector('#sync-setup-form');
   assert.equal(await page.locator('#sync-provider').inputValue(),'gitee');assert.equal(await page.locator('a[href="https://gitee.com/projects/new"]').count(),1);assert.equal(await page.locator('a[href="https://gitee.com/profile/personal_access_tokens"]').count(),1);
   await page.locator('[name="remote"]').fill('https://gitee.com/example/notes.git');await page.locator('[name="token"]').fill('anonymous-test-token');await page.locator('#sync-setup-form [type="submit"]').click();await page.waitForSelector('.sync-setup-error:not([hidden])');assert.match(await page.locator('.sync-setup-error').innerText(),/用户名/);assert.equal(await page.evaluate(()=>window.nativeSyncCalls),0);

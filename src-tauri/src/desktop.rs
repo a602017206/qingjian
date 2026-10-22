@@ -74,11 +74,20 @@ fn item(
 ) -> tauri::Result<MenuItem<tauri::Wry>> {
     MenuItem::with_id(app, id, text(locale, key), true, shortcut)
 }
+fn trace_window(window: &tauri::WebviewWindow, action: &str) {
+    if std::env::var("QINGJIAN_DESKTOP_DIAGNOSTICS").as_deref() == Ok("1") {
+        eprintln!(
+            "桌面验证：{action}，窗口可见={}",
+            window.is_visible().unwrap_or(false)
+        );
+    }
+}
 pub fn show(app: &tauri::AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        trace_window(&window, "显示");
     }
 }
 pub fn request(app: &tauri::AppHandle, action: &str) {
@@ -277,6 +286,7 @@ pub fn desktop_complete(
             window
                 .hide()
                 .map_err(|_| "窗口未能隐藏，请重试".to_string())?;
+            trace_window(&window, "已完成本机保存并隐藏");
         }
         Some("close") => {
             window

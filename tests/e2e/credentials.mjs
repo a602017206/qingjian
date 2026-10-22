@@ -13,7 +13,7 @@ try{
   const w=await api('createWorkspace',{name:phone?'手机匿名测试':'桌面匿名测试'}),vault=new Map(),requests=[];
   const context=await browser.newContext({viewport:phone?{width:390,height:844}:{width:1360,height:960},isMobile:phone,hasTouch:phone});
   await context.exposeBinding('testNativeDispatch',async(_,args)=>{
-   const {action,request}=args;if(action==='credentialCapabilities')return {available:true};
+   const {action,request}=args;if(action==='appInfo')return {...await api(action,request),os:phone?'android':'macos'};if(action==='credentialCapabilities')return {available:true};
    const id=request.workspaceId,old=vault.get(id);
    if(action==='credentialStatus')return {available:true,saved:!!old,session:!!old,username:old?.username||''};
    if(action==='credentials'){requests.push({...request});const auth={username:request.username||old?.username,token:request.token||old?.token};if(!auth.username||!auth.token)throw new Error('匿名测试缺少认证');if(request.remember)vault.set(id,auth);else vault.delete(id);return {available:true,saved:!!request.remember,session:true,username:auth.username};}
@@ -21,7 +21,7 @@ try{
    if(action==='sync')return {status:'success',message:'匿名界面测试同步完成'};
    return api(action,request);
   });
-  await context.addInitScript(()=>{window.isTauri=true;window.__TAURI_INTERNALS__={invoke:async(cmd,args)=>{if(cmd!=='dispatch')throw '匿名测试不调用原生插件';return window.testNativeDispatch(args);}};});
+  await context.addInitScript(()=>{window.isTauri=true;window.__TAURI_INTERNALS__={transformCallback:()=>1,invoke:async(cmd,args)=>{if(cmd==='desktop_pending')return [];if(cmd==='desktop_locale')return null;if(cmd==='plugin:event|listen')return 1;if(cmd!=='dispatch')throw '匿名测试不调用原生插件';return window.testNativeDispatch(args);}};});
   const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.route('https://api.github.com/**',route=>route.fulfill({status:503,body:'匿名测试不访问更新服务'}));await page.goto(`${base}/?workspace=${w.id}`);await page.waitForSelector('.home-heading');await page.locator('.topbar [data-action=sync]').click();
   const form=page.locator('#sync-setup-form');await form.locator('[name=remember]:enabled').waitFor();assert.equal(await form.locator('[name=remember]').isChecked(),true);
   await form.locator('[name=remote]').fill('https://gitee.com/anonymous/notes.git');await form.locator('[name=username]').fill('anonymous-user');await form.locator('[name=token]').fill('anonymous-test-secret');await form.locator('[type=submit]').click();await form.waitFor({state:'detached'});assert.equal(requests[0].remember,true);
