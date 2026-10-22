@@ -23,7 +23,8 @@ try{
   const current=(await api('pages')).find(p=>p.id===note.id);await api('save',{page:{...current,blocks:note.blocks}});
   const page=await browser.newPage({viewport:{width,height:900}}),errors=[];page.setDefaultTimeout(5000);page.on('pageerror',error=>errors.push(error.message));
   const open=async id=>{await page.goto(`${base}/?workspace=${workspaceId}&page=${id}`);await page.waitForSelector('#page-title:not([readonly])');};
-  const openRow=id=>page.locator(`[data-action=${width<600?'openMobileRow':'openRow'}][data-id=${id}]`).click();
+  // 导航恢复草稿期间正文会暂时只读；点击返回不代表侧览已可编辑。
+  const openRow=async id=>{await page.locator(`[data-action=${width<600?'openMobileRow':'openRow'}][data-id=${id}]`).click();await page.waitForSelector(id==='linked'?'.record-peek #page-title:not([readonly])':'.record-peek #record-body:not([readonly])');};
   for(const legacy of [false,true]){
    const mode=legacy?'兼容码229':'组词标志';
    await check(`${width} ${mode}属性回车不提交`,async()=>{
