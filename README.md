@@ -13,7 +13,7 @@
 [![许可](https://img.shields.io/badge/许可-Apache%202.0-blue)](LICENSE)
 ![访问次数](https://hits.sh/github.com/a602017206/qingjian.svg?label=访问次数&color=0e75b6)
 
-[下载最新版](https://github.com/a602017206/qingjian/releases/latest) · [版本历史](https://github.com/a602017206/qingjian/releases) · [使用指南](docs/使用指南.md) · [问题反馈](https://github.com/a602017206/qingjian/issues)
+[官方网站](https://a602017206.github.io/qingjian/) · [下载最新版](https://github.com/a602017206/qingjian/releases/latest) · [版本历史](https://github.com/a602017206/qingjian/releases) · [使用指南](docs/使用指南.md) · [问题反馈](https://github.com/a602017206/qingjian/issues)
 
 </div>
 
@@ -111,6 +111,31 @@
 笔记首先写入本地工作区；关联仓库后，应用在前台自动同步，也可手动同步。工作区相互独立，私有笔记不会上传到本项目源码仓库。仓库的公开或私有状态由你选择，请勿把私人笔记误推送到公开仓库。
 
 访问令牌可由本机系统安全凭据库记住，不写入笔记、同步仓库或源码；项目不自动强制推送、不覆盖分叉历史。笔记和附件可导出，恢复前建议保留原始备份。工作区路径可在应用设置中的数据页面查看。
+
+## 官方网站
+
+访问 **[轻笺官方网站](https://a602017206.github.io/qingjian/)**，查看产品介绍、真实界面、平台下载与常见问题。
+
+官网源码直接保存在 [`website/`](website/) 中，使用原生 HTML、CSS 和 JavaScript，无前端框架、无需构建。提供纸白、夜航、青庭三套主题，简体中文、繁体中文、英文三种语言，以及随主题变化的 Three.js 悬浮纸页与星轨动效。偏好保存在访客本机；减少动态偏好默认暂停，WebGL 不可用时显示静态纸页。Three.js 固定版本随站点托管，运行时不依赖外部 CDN。
+
+官网主题和语言设置独立于客户端；客户端目前仍为浅色、深色、跟随系统及简繁中文。官网明确区分正式版与测试构建，不将测试能力冒充已发布功能。
+
+本地预览：
+
+```bash
+python3 -m http.server 4318 --directory website
+```
+
+打开 `http://localhost:4318`。修改后验证：
+
+```bash
+node scripts/check-website.mjs
+node tests/e2e/website.mjs
+```
+
+浏览器验证需要先运行 `npm ci`；Linux 等尚未配置浏览器的环境执行 `npx playwright install --with-deps chromium`，本机 macOS 默认使用已安装的 Chrome。测试自带隔离静态服务器，以 `/qingjian/` 项目子路径检查资源、九种主题语言组合、手机布局、WebGL 渲染、动画暂停和降级，截图输出至忽略提交的 `test-results/website/`。
+
+向 `main` 推送官网文件会触发[官方网站验证与发布](https://github.com/a602017206/qingjian/actions/workflows/pages.yml)：通过静态及浏览器检查后，仅发布 `website/` 到 GitHub Pages；合并请求只验证。也可在 Actions 页面手动运行该工作流。页面内容、截图来源、版本更新与发布排查见[官网维护说明](docs/官网维护说明.md)。
 
 ## 本机开发
 

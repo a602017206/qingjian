@@ -1,0 +1,78 @@
+name: 官方网站验证与发布
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'scripts/check-website.mjs'
+      - 'tests/e2e/website.mjs'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'website/**'
+      - 'scripts/check-website.mjs'
+      - 'tests/e2e/website.mjs'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 官网静态与浏览器验证
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 读取项目
+        uses: actions/checkout@v4
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: 安装验证依赖
+        run: npm ci
+      - name: 安装浏览器与中文字体
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y fonts-noto-cjk
+      - name: 验证官网
+        run: |
+          node scripts/check-website.mjs
+          node tests/e2e/website.mjs
+      - name: 保存截图与验证报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingjian-website-verification
+          path: test-results/website/
+
+  deploy:
+    name: 发布 GitHub Pages
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 读取项目
+        uses: actions/checkout@v4
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+      - name: 上传独立官网目录
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website
+      - name: 发布官网
+        id: deployment
+        uses: actions/deploy-pages@v4

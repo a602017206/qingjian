@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="paper">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="轻笺是一款本地优先的开源笔记工具。用内容块与数据库整理想法，通过自己的 Git 仓库连接设备，让笔记始终掌握在自己手中。">
+  <meta name="theme-color" content="#f7f8fc">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="轻笺 · 让想法有处安放">
+  <meta property="og:description" content="本地优先，自由开源。内容块、数据库与多仓库同步，让笔记始终是你的。">
+  <meta property="og:url" content="https://a602017206.github.io/qingjian/">
+  <meta property="og:image" content="https://a602017206.github.io/qingjian/assets/editor.webp">
+  <meta property="og:locale" content="zh_CN">
+  <meta name="color-scheme" content="light dark">
+  <link rel="canonical" href="https://a602017206.github.io/qingjian/">
+  <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
+  <link rel="stylesheet" href="./styles.css">
+  <title>轻笺 · 让想法有处安放</title>
+  <script>
+    // 在首帧应用主题；浏览器禁止存储时保持默认主题。
+    try { const theme = localStorage.getItem('qingjian-site-theme'); if (['paper','midnight','grove'].includes(theme)) document.documentElement.dataset.theme = theme; } catch {}
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main" data-i18n="skip">跳至正文</a>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 4v12m-5-5 5 5 5-5M5 19h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-github" viewBox="0 0 24 24"><path d="M9 19c-4 1-4-2-6-2m12 5v-4c0-1 .1-1.8-.5-2.5 3-.3 6-1.5 6-6a4.7 4.7 0 0 0-1.3-3.3c.1-.3.6-1.6-.1-3.2 0 0-1.1-.4-3.6 1.3a12.3 12.3 0 0 0-7 0C5 2.6 4 3 4 3c-.7 1.6-.2 2.9-.1 3.2A4.7 4.7 0 0 0 2.5 9.5c0 4.5 3 5.7 6 6C8 16.2 8 17 8 18v4"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16M10 10v10"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="m10 13 4-4m-6 6-1 1a4.2 4.2 0 0 1-6-6l4-4a4.2 4.2 0 0 1 6 0m2 2 1-1a4.2 4.2 0 0 1 6 6l-4 4a4.2 4.2 0 0 1-6 0" transform="translate(1 1)"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 10a9 9 0 1 1 0 5m0-11v6h6m3-3v5l3 2"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="m15 4 5 5M4 20l5-1L20 8a3.5 3.5 0 0 0-5-5L4 14l-1 7 6-2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 4-5 8-8 9-3-1-8-5-8-9V6l8-3Zm-4 9 3 3 5-6"/></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 9a8 8 0 0 0-14-4L3 8m0-5v5h5m-4 7a8 8 0 0 0 14 4l3-3m0 5v-5h-5"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6M8 13h8m-8 4h5"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m6 0h5v-5"/></symbol>
+  </svg>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="brand" href="#" aria-label="轻笺" data-i18n-aria="brand"><img src="./assets/favicon.svg" width="36" height="36" alt=""><span data-i18n="brand">轻笺</span></a>
+      <nav class="desktop-nav" aria-label="主导航" data-i18n-aria="nav.menu">
+        <a href="#features" data-i18n="nav.features">探索功能</a><a href="#workspace" data-i18n="nav.workspace">你的工作区</a><a href="https://github.com/a602017206/qingjian/blob/main/docs/使用指南.md" data-i18n="nav.docs">使用指南</a>
+      </nav>
+      <div class="header-tools">
+        <div class="theme-switch" role="group" aria-label="网站主题" data-i18n-aria="settings.theme">
+          <button class="theme-dot" data-set-theme="paper" aria-label="纸白" data-i18n-aria="theme.paper" title="纸白" data-i18n-title="theme.paper" aria-pressed="true"><span></span></button>
+          <button class="theme-dot" data-set-theme="midnight" aria-label="夜航" data-i18n-aria="theme.midnight" title="夜航" data-i18n-title="theme.midnight" aria-pressed="false"><span></span></button>
+          <button class="theme-dot" data-set-theme="grove" aria-label="青庭" data-i18n-aria="theme.grove" title="青庭" data-i18n-title="theme.grove" aria-pressed="false"><span></span></button>
+        </div>
+        <select id="language" aria-label="网站语言" data-i18n-aria="settings.language"><option value="zh-CN" lang="zh-CN">简体中文</option><option value="zh-TW" lang="zh-TW">繁體中文</option><option value="en" lang="en">English</option></select>
+        <a class="source-icon" href="https://github.com/a602017206/qingjian" aria-label="查看 GitHub 源码" data-i18n-aria="nav.source"><svg class="icon"><use href="#i-github"/></svg></a>
+        <button class="menu-toggle icon-button" id="menu-toggle" aria-expanded="false" aria-controls="mobile-nav" aria-label="打开导航菜单" data-i18n-aria="nav.menu"><svg class="icon"><use href="#i-menu"/></svg></button>
+      </div>
+    </div>
+    <nav class="mobile-nav" id="mobile-nav" hidden><a href="#features" data-i18n="nav.features">探索功能</a><a href="#workspace" data-i18n="nav.workspace">你的工作区</a><a href="https://github.com/a602017206/qingjian/blob/main/docs/使用指南.md" data-i18n="nav.docs">使用指南</a><a href="#download" data-i18n="nav.download">下载轻笺</a></nav>
+  </header>
+
+  <main id="main">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span><span data-i18n="hero.eyebrow">本地优先，自由开源</span></p>
+        <h1><span data-i18n="hero.line1">想法，自由生长。</span><span class="accent-line" data-i18n="hero.line2">笔记，始终是你的。</span></h1>
+        <p class="hero-description" data-i18n="hero.description">从一闪而过的灵感，到慢慢成形的计划。用轻笺写下、连接、整理，让想法有处安放，让数据留在自己手中。</p>
+        <div class="hero-actions"><a class="button primary" href="#download"><span data-i18n="hero.primary">找到你的版本</span><svg class="icon"><use href="#i-down"/></svg></a><a class="text-link" href="#preview"><span data-i18n="hero.secondary">看看轻笺能做什么</span><svg class="icon"><use href="#i-arrow"/></svg></a></div>
+        <p class="hero-note" data-i18n="hero.note">无需云端账号 · 断网也能写 · Apache 2.0 开源</p>
+      </div>
+      <div class="hero-art">
+        <div class="art-halo" aria-hidden="true"></div>
+        <div id="scene" class="scene" aria-hidden="true"><div class="paper-fallback"><div class="fallback-sheet"><i></i><i></i><i></i><i></i><b>✳</b></div><div class="fallback-sheet back"></div></div></div>
+        <span class="orbit-label label-write"><i class="little-square"></i><span data-i18n="hero.write">写下灵感</span></span>
+        <span class="orbit-label label-connect"><svg class="icon"><use href="#i-link"/></svg><span data-i18n="hero.connect">连接想法</span></span>
+        <span class="orbit-label label-local"><span class="status-dot"></span><span data-i18n="hero.keep">存于本地</span></span>
+        <div class="art-caption"><span data-i18n="hero.orbit">每一个想法，都有自己的轨道。</span><button id="motion-toggle" class="motion-toggle" aria-pressed="false" hidden><span class="motion-symbol" aria-hidden="true">Ⅱ</span><span data-motion-label data-i18n="motion.pause">暂停动效</span></button></div>
+      </div>
+      <a class="scroll-cue" href="#preview"><span data-i18n="hero.scroll">向下探索</span><span aria-hidden="true">↓</span></a>
+    </section>
+
+    <section id="preview" class="preview-section wrap section-space">
+      <div class="section-heading centered reveal"><p class="eyebrow" data-i18n="preview.eyebrow">从灵感，到井井有条</p><h2 data-i18n="preview.title">写得随心，整理得顺手。</h2><p data-i18n="preview.description">同一个工作区，装得下自由的文字，也容得下有结构的计划。</p></div>
+      <div class="preview-tabs" role="tablist" aria-label="应用截图分类" data-i18n-aria="preview.tabs"><button id="tab-editor" role="tab" aria-selected="true" aria-controls="preview-panel" data-preview="editor" tabindex="0"><svg class="icon"><use href="#i-pen"/></svg><span data-i18n="preview.editor">自由书写</span></button><button id="tab-database" role="tab" aria-selected="false" aria-controls="preview-panel" data-preview="database" tabindex="-1"><svg class="icon"><use href="#i-grid"/></svg><span data-i18n="preview.database">有序组织</span></button><button id="tab-mobile" role="tab" aria-selected="false" aria-controls="preview-panel" data-preview="mobile" tabindex="-1"><svg class="icon"><use href="#i-file"/></svg><span data-i18n="preview.mobile">随身记录</span></button></div>
+      <figure class="product-frame reveal" id="preview-panel" role="tabpanel" aria-labelledby="tab-editor">
+        <div class="window-bar" aria-hidden="true"><div class="window-dots"><i></i><i></i><i></i></div><span data-i18n="brand">轻笺</span><svg class="icon"><use href="#i-shield"/></svg></div>
+        <button class="screenshot-button" id="screenshot-open" aria-label="查看完整截图" data-i18n-aria="preview.zoom"><img id="product-screenshot" src="./assets/editor.webp" alt="轻笺桌面编辑器，展示嵌套内容块、待办事项、代码和多列排版" data-i18n-alt="preview.alt.editor" width="1600" height="1100" fetchpriority="high"><span class="zoom-hint" aria-hidden="true"><svg class="icon"><use href="#i-expand"/></svg></span></button>
+        <figcaption><span id="preview-caption" data-i18n="preview.caption.editor">真实桌面界面 · 内容块、多选与拖拽分栏</span><span class="caption-dot" aria-hidden="true"></span></figcaption>
+      </figure>
+      <p class="preview-annotation" data-i18n="preview.annotation">不是概念图，是正在使用的轻笺。</p>
+    </section>
+
+    <section id="features" class="features-section wrap section-space">
+      <div class="section-heading reveal"><p class="eyebrow" data-i18n="features.eyebrow">不止是一张白纸</p><h2 data-i18n="features.title">轻一点，也能装下很多。</h2><p data-i18n="features.description">把需要的工具放在手边，把注意力留给内容。</p></div>
+      <div class="feature-grid">
+        <article class="feature-card blocks-card reveal"><div class="feature-icon"><svg class="icon"><use href="#i-pen"/></svg></div><h3 data-i18n="feature.blocks.title">像搭积木一样，组织文字</h3><p data-i18n="feature.blocks.body">标题、待办、代码、引用、图片与附件。用 / 唤出内容块，嵌套、拖动、多选，再把内容排成喜欢的样子。</p><div class="block-sketch" aria-hidden="true"><div class="sketch-title"><span class="drag-mark">⠿</span><span data-i18n="feature.blocks.label">从一句话开始</span><span class="typing-caret"></span></div><div class="sketch-todo"><span class="sketch-check">✓</span><span data-i18n="feature.blocks.todo1">捕捉今天的灵感</span></div><div class="sketch-todo"><span class="sketch-check empty"></span><span data-i18n="feature.blocks.todo2">给下一个计划留白</span></div><span class="slash-key">/</span></div></article>
+        <article class="feature-card database-card reveal"><div class="feature-icon"><svg class="icon"><use href="#i-grid"/></svg></div><h3 data-i18n="feature.database.title">同一份资料，换个角度看</h3><p data-i18n="feature.database.body">表格、看板、列表、图库、日历，五种视图自由切换。22 种本地属性，配合命名视图、筛选和排序，把杂乱变得清晰。</p><div class="database-sketch" aria-hidden="true"><div class="view-chips"><span data-i18n="view.table">表格</span><span data-i18n="view.board">看板</span><span data-i18n="view.list">列表</span><span data-i18n="view.gallery">图库</span><span data-i18n="view.calendar">日历</span></div><div class="kanban-sketch"><div><i></i><b></b><b></b></div><div><i></i><b></b></div><div><i></i><b></b><b></b></div></div></div></article>
+        <article class="feature-card links-card reveal"><div class="feature-icon"><svg class="icon"><use href="#i-link"/></svg></div><h3 data-i18n="feature.links.title">把零散的点，连成自己的网</h3><p data-i18n="feature.links.body">多级页面、页面链接、反向链接和标题目录。让阅读笔记连到项目，让项目连到下一次灵感。</p><div class="links-sketch" aria-hidden="true"><svg viewBox="0 0 450 100"><path d="M80 65Q220-20 365 65M80 65Q220 140 365 65"/><circle cx="225" cy="30" r="5"/><circle cx="225" cy="96" r="3"/></svg><span data-i18n="feature.links.node1">阅读</span><span class="central-node" data-i18n="feature.links.node2">灵感</span><span data-i18n="feature.links.node3">计划</span></div></article>
+        <article class="feature-card history-card reveal"><div class="feature-icon"><svg class="icon"><use href="#i-history"/></svg></div><h3 data-i18n="feature.history.title">写下的每一步，都有迹可循</h3><p data-i18n="feature.history.body">自动保存到本地，查看页面版本，恢复历史内容。回收站和真实空间用量，让整理与清理都有依据。</p><div class="history-sketch" aria-hidden="true"><div class="history-line"><i></i><i></i><i></i><i></i><i></i><svg class="icon"><use href="#i-check"/></svg></div><span data-i18n="feature.history.label">记录当下，也留得住来路。</span></div></article>
+      </div>
+    </section>
+
+    <section id="workspace" class="workspace-section section-space">
+      <div class="wrap workspace-grid">
+        <div class="workspace-copy reveal"><p class="eyebrow" data-i18n="workspace.eyebrow">数据的主人，始终是你</p><h2><span data-i18n="workspace.title1">自己的设备，</span><span data-i18n="workspace.title2">自己的小宇宙。</span></h2><p data-i18n="workspace.body">不必先注册云端账号。先在本地安心写作，需要时再用自己的 Git 仓库连接设备。个人、工作、专题，各有独立的工作区。</p>
+          <div class="workspace-map"><div class="workspace-stack"><div><span class="workspace-symbol">✳</span><span data-i18n="workspace.personal">个人灵感</span><span class="status-dot"></span></div><div><svg class="icon"><use href="#i-grid"/></svg><span data-i18n="workspace.work">工作计划</span><span class="status-dot"></span></div><div><svg class="icon"><use href="#i-file"/></svg><span data-i18n="workspace.study">阅读研究</span><span class="status-dot"></span></div></div><div class="map-connector" aria-hidden="true"><i></i><i></i><i></i><b></b></div><div class="repo-orb" aria-hidden="true"><svg class="icon"><use href="#i-sync"/></svg></div><div class="map-labels"><span data-i18n="workspace.local">本地工作区</span><span data-i18n="workspace.repo">自己的 Git 仓库</span></div></div>
+        </div>
+        <div class="workspace-details reveal"><article><span class="detail-icon"><svg class="icon"><use href="#i-sync"/></svg></span><div><h3 data-i18n="workspace.sync.title">连接设备，保留选择权</h3><p data-i18n="workspace.sync.body">支持 Gitee、GitHub、GitLab 及兼容的 HTTPS 仓库。应用内完成同步，无需安装 Git；遇到冲突核对版本后再选择，不自动强制推送。</p></div></article><article><span class="detail-icon"><svg class="icon"><use href="#i-file"/></svg></span><div><h3 data-i18n="workspace.migrate.title">把过去带来，也能随时带走</h3><p data-i18n="workspace.migrate.body">导入 Notion 导出包、Markdown、CSV 与基础 HTML。用结构化备份保留完整页面、数据库与附件；源文件缺失的信息会在导入报告中说明。</p></div></article><article><span class="detail-icon"><svg class="icon"><use href="#i-shield"/></svg></span><div><h3 data-i18n="workspace.security.title">认证留在本机</h3><p data-i18n="workspace.security.body">原生客户端可用系统安全凭据库记住工作区认证。令牌不写入笔记，也不随仓库同步到其他设备。</p></div></article></div>
+      </div>
+    </section>
+
+    <aside class="test-banner wrap reveal"><div class="test-symbol" aria-hidden="true">✳</div><div><p class="eyebrow" data-i18n="test.label">正在打磨 · 0.0.7 测试构建</p><h3 data-i18n="test.title">让日常使用，再顺手一点。</h3><p data-i18n="test.body">前台自动同步、数据库记录批量操作、编辑排版稳定性与桌面常驻快捷入口，正在测试构建中验证。以下正式版下载尚不包含这些改进。</p></div><a class="text-link" href="https://github.com/a602017206/qingjian/blob/main/docs/测试说明/0.0.7.md"><span data-i18n="test.link">了解测试构建范围</span><svg class="icon"><use href="#i-arrow"/></svg></a></aside>
+
+    <section id="download" class="download-section wrap section-space">
+      <div class="section-heading centered reveal"><p class="eyebrow" data-i18n="download.eyebrow">把轻笺带到你的设备</p><h2 data-i18n="download.title">下一段想法，从这里开始。</h2><p data-i18n="download.body">桌面认真整理，手机随时记下。选择适合设备的正式版安装包。</p><a class="release-pill" href="https://github.com/a602017206/qingjian/releases/tag/v0.0.6"><span class="status-dot"></span><span data-i18n="download.stable">当前正式版 · 0.0.6</span><span aria-hidden="true">↗</span></a></div>
+      <div class="download-grid reveal">
+        <article class="download-card"><span class="platform-mark mac-mark" aria-hidden="true">⌘</span><h3 data-i18n="download.mac">macOS</h3><p data-i18n="download.mac.note">苹果自研与英特尔处理器</p><div class="download-links"><a href="https://github.com/a602017206/qingjian/releases/latest/download/qingjian-macos-arm64.zip"><span data-i18n="download.mac.arm">Apple 芯片</span><svg class="icon"><use href="#i-down"/></svg></a><a href="https://github.com/a602017206/qingjian/releases/latest/download/qingjian-macos-x64.zip"><span data-i18n="download.mac.intel">Intel 芯片</span><svg class="icon"><use href="#i-down"/></svg></a></div></article>
+        <article class="download-card"><span class="platform-mark windows-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span><h3 data-i18n="download.windows">Windows</h3><p data-i18n="download.windows.note">六十四位安装程序</p><div class="download-links"><a href="https://github.com/a602017206/qingjian/releases/latest/download/qingjian-windows-x64.exe"><span data-i18n="download.windows.link">下载安装程序</span><svg class="icon"><use href="#i-down"/></svg></a></div></article>
+        <article class="download-card"><span class="platform-mark linux-mark" aria-hidden="true">&gt;_</span><h3 data-i18n="download.linux">Linux</h3><p data-i18n="download.linux.note">六十四位桌面系统</p><div class="download-links"><a href="https://github.com/a602017206/qingjian/releases/latest/download/qingjian-linux-x64.deb"><span data-i18n="download.linux.deb">.deb 安装包</span><svg class="icon"><use href="#i-down"/></svg></a><a href="https://github.com/a602017206/qingjian/releases/latest/download/qingjian-linux-x64.AppImage"><span data-i18n="download.linux.appimage">AppImage 便携包</span><svg class="icon"><use href="#i-down"/></svg></a></div></article>
+        <article class="download-card"><span class="platform-mark android-mark" aria-hidden="true"><i></i><b></b></span><h3 data-i18n="download.android">Android</h3><p data-i18n="download.android.note">ARM64 · 固定签名，可覆盖升级</p><div class="download-links"><a href="https://github.com/a602017206/qingjian/releases/latest/download/qingjian-android-arm64.apk"><span data-i18n="download.android.link">下载 APK</span><svg class="icon"><use href="#i-down"/></svg></a></div></article>
+        <article class="download-card"><span class="platform-mark ios-mark" aria-hidden="true"><i></i></span><h3 data-i18n="download.ios">iOS</h3><p data-i18n="download.ios.note">真机包未签名，需自行签名</p><div class="download-links"><a href="https://github.com/a602017206/qingjian/releases/latest/download/qingjian-ios-unsigned-arm64.ipa"><span data-i18n="download.ios.link">下载未签名 IPA</span><svg class="icon"><use href="#i-down"/></svg></a><a class="subtle-download" href="https://github.com/a602017206/qingjian/blob/main/docs/苹果手机免费安装说明.md"><span data-i18n="download.ios.guide">了解签名与安装</span><span aria-hidden="true">↗</span></a></div></article>
+      </div>
+      <div class="download-bottom"><a class="text-link" href="https://github.com/a602017206/qingjian/releases"><span data-i18n="download.all">全部版本与校验文件</span><svg class="icon"><use href="#i-arrow"/></svg></a><a class="text-link" href="https://github.com/a602017206/qingjian#首次打开"><span data-i18n="download.install">首次安装说明</span><svg class="icon"><use href="#i-arrow"/></svg></a></div>
+      <p class="install-notice" data-i18n="download.notice">macOS 尚未公证，Windows 尚未购买代码签名证书；首次打开可能出现系统提示。iOS 未签名包不能直接安装，免费账号签名通常每七天续期。安装前请阅读对应说明。</p>
+    </section>
+
+    <section class="faq-section wrap section-space reveal"><h2 data-i18n="faq.title">你可能还想知道</h2><div class="faq-list"><details><summary data-i18n="faq.account.q">需要注册账号或保持联网吗？</summary><p data-i18n="faq.account.a">不需要云端账号即可在本地创建和编辑笔记，断网也能使用。远程同步需要你自己的仓库账号与网络连接。</p></details><details><summary data-i18n="faq.sync.q">Git 同步等于实时多人协作吗？</summary><p data-i18n="faq.sync.a">目前不提供实时多人协作、完整评论或权限系统。不同笔记可自动合并，同一笔记的冲突需在应用内核对双方版本后处理。前台自动同步目前仅在测试构建提供。</p></details><details><summary data-i18n="faq.import.q">能完整还原所有 Notion 内容吗？</summary><p data-i18n="faq.import.a">可以导入导出包中可恢复的页面、正文与表格。源文件未包含的属性类型、颜色、评论、权限、公式和关联信息无法凭空恢复，导入报告会说明边界。完整往返迁移请使用轻笺结构化备份。</p></details><details><summary data-i18n="faq.language.q">官网主题和语言也适用于客户端吗？</summary><p data-i18n="faq.language.a">这里的三套主题和中英三语言为官网设计。客户端目前提供浅色、深色、跟随系统，以及简体中文和繁体中文，正文保留原始语言。</p></details></div></section>
+  </main>
+  <footer class="site-footer wrap"><div class="footer-main"><a class="brand" href="#"><img src="./assets/favicon.svg" width="32" height="32" alt=""><span data-i18n="brand">轻笺</span></a><p data-i18n="footer.tagline">让想法有处安放。</p><nav><a href="https://github.com/a602017206/qingjian" data-i18n="footer.source">开源代码</a><a href="https://github.com/a602017206/qingjian/blob/main/docs/使用指南.md" data-i18n="footer.guide">使用文档</a><a href="https://github.com/a602017206/qingjian/issues" data-i18n="footer.feedback">问题反馈</a></nav></div><div class="footer-bottom"><span data-i18n="footer.made">轻笺 · 本地优先，自由生长</span><a href="https://github.com/a602017206/qingjian/blob/main/LICENSE" data-i18n="footer.license">以 Apache 2.0 许可开源</a></div></footer>
+  <dialog id="screenshot-dialog"><button id="screenshot-close" class="dialog-close icon-button" aria-label="关闭截图" data-i18n-aria="preview.close"><svg class="icon"><use href="#i-close"/></svg></button><img id="dialog-screenshot" src="./assets/editor.webp" alt="轻笺桌面编辑器，展示嵌套内容块、待办事项、代码和多列排版" data-i18n-alt="preview.alt.editor" width="1600" height="1100"></dialog>
+  <noscript><p class="noscript-note" data-i18n="noscript">本页面的主题、语言切换与动态效果需要 JavaScript。产品介绍和下载链接仍可直接使用。</p></noscript>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>

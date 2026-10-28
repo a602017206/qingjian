@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://a602017206.github.io/qingjian/sitemap.xml
