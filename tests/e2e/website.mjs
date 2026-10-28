@@ -24,8 +24,12 @@ try {
   const localBase = `http://127.0.0.1:${server.address().port}/qingjian/`;
   const base = process.env.QINGJIAN_SITE_URL || localBase;
   const origin = new URL(base).origin;
-  browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { channel: 'chrome' } : {}), args: ['--enable-webgl', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  // 公网验收沿用命令行网络代理；Chrome 不会自动读取 HTTPS_PROXY。
+  const proxyAddress = process.env.QINGJIAN_SITE_URL && (process.env.HTTPS_PROXY || process.env.https_proxy || process.env.HTTP_PROXY || process.env.http_proxy);
+  const proxyUrl = proxyAddress ? new URL(proxyAddress) : null;
+  const proxy = proxyUrl ? { server: `${proxyUrl.protocol}//${proxyUrl.host}`, ...(proxyUrl.username ? { username: decodeURIComponent(proxyUrl.username), password: decodeURIComponent(proxyUrl.password) } : {}) } : undefined;
+  browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { channel: 'chrome' } : {}), ...(proxy ? { proxy } : {}), args: ['--enable-webgl', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'no-preference' });
   const errors = [], failed = [], external = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('response', response => { if (response.status() >= 400) failed.push(`${response.status()} ${response.url()}`); });
@@ -34,6 +38,9 @@ try {
   assert.equal(await page.locator('html').getAttribute('lang'), 'zh-CN');
   await page.waitForSelector('#scene[data-ready="true"]');
   const canvas = page.locator('#scene canvas');
+  // 先确认动态状态，再暂停截图；避免软件 WebGL 连续绘制干扰截图稳定等待。
+  await page.waitForFunction(() => document.querySelector('#scene').dataset.animating === 'true');
+  await page.locator('#motion-toggle').click();
   assert.ok((await canvas.screenshot()).length > 10000, 'WebGL 画布应真实绘制纸页而非空白');
   checks.push('项目子路径资源与真实 WebGL 渲染');
 
@@ -51,7 +58,6 @@ try {
     await page.locator('#language').selectOption('zh-CN');
     await page.screenshot({ path: path.join(output, `desktop-${theme}.png`) });
   }
-  await page.locator('#motion-toggle').click();
   const groveCanvas = await canvas.screenshot();
   await page.locator('[data-set-theme="midnight"]').click();
   assert.notDeepEqual(await canvas.screenshot(), groveCanvas, '主题应改变 3D 场景的实际渲染');
@@ -126,6 +132,8 @@ try {
   assert.deepEqual(errors, [], '主页面不应有 JavaScript 错误');
   assert.deepEqual(failed, [], '官网资源不应有 HTTP 错误');
   assert.deepEqual(external, [], '运行时不应依赖第三方请求');
+  // 每组独立释放图形上下文，避免软件渲染器同时维护多个页面。
+  await page.close();
 
   const reduced = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1200, height: 900 } });
   await reduced.goto(base, { waitUntil: 'networkidle' });
@@ -134,6 +142,7 @@ try {
   assert.equal(await reduced.locator('#motion-toggle').getAttribute('aria-pressed'), 'true');
   assert.ok(await reduced.locator('.feature-card').first().evaluate(element => getComputedStyle(element).opacity === '1'));
   checks.push('系统减少动态偏好默认暂停，正文不隐藏');
+  await reduced.close();
 
   const fallback = await browser.newPage();
   await fallback.addInitScript(() => {
@@ -153,6 +162,7 @@ try {
   assert.equal(await fallback.locator('html').getAttribute('data-theme'), 'grove');
   assert.deepEqual(fallbackErrors, []);
   checks.push('WebGL 不可用及存储禁用时，正文、下载与设置仍可用');
+  await fallback.close();
 
   const noScript = await browser.newPage({ javaScriptEnabled: false });
   await noScript.goto(base, { waitUntil: 'networkidle' });
