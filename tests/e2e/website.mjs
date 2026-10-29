@@ -39,10 +39,27 @@ try {
   await page.goto(base, { waitUntil: 'networkidle' });
   assert.equal(await page.locator('html').getAttribute('lang'), 'zh-CN');
   await page.waitForSelector('#scene[data-ready="true"]');
+  const leafTrail = page.locator('canvas.cursor-trail');
+  assert.equal(await leafTrail.count(), 1, '官网应提供清风树叶鼠标尾迹');
+  assert.equal(await leafTrail.evaluate(element => getComputedStyle(element).pointerEvents), 'none', '尾迹不能拦截点击与拖动');
+  await page.mouse.move(80, 150);
+  for (let step = 1; step <= 18; step++) await page.mouse.move(80 + step * 24, 150 + Math.sin(step * .3) * 24);
+  await page.waitForFunction(() => {
+    const canvas = document.querySelector('canvas.cursor-trail');
+    if (canvas.hidden) return false;
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let index = 3; index < pixels.length; index += 4) if (pixels[index] > 15) return true;
+    return false;
+  });
+  await page.screenshot({ path: path.join(output, 'leaf-cursor-trail.png') });
+  await leafTrail.waitFor({ state: 'hidden', timeout: 4500 });
+  checks.push('清风树叶尾迹真实绘制、穿透点击和停留后自动消散');
   const canvas = page.locator('#scene canvas');
   // 先确认动态状态，再暂停截图；避免软件 WebGL 连续绘制干扰截图稳定等待。
   await page.waitForFunction(() => document.querySelector('#scene').dataset.animating === 'true');
   await page.locator('#motion-toggle').click();
+  await page.mouse.move(130, 150); await page.mouse.move(240, 165);
+  assert.equal(await leafTrail.isHidden(), true, '全站暂停应关闭鼠标尾迹');
   await page.waitForFunction(() => getComputedStyle(document.querySelector('#scene canvas')).opacity === '1');
   assert.ok((await canvas.screenshot()).length > 10000, 'WebGL 画布应真实绘制纸页而非空白');
   checks.push('项目子路径资源与真实 WebGL 渲染');
@@ -184,6 +201,7 @@ try {
   const reduced = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   await reduced.goto(base, { waitUntil: 'networkidle' });
   await reduced.waitForSelector('#scene[data-ready="true"]');
+  assert.equal(await reduced.locator('canvas.cursor-trail').isHidden(), true, '减少动态时不启用树叶尾迹');
   assert.equal(await reduced.locator('#scene').getAttribute('data-animating'), 'false');
   assert.equal(await reduced.locator('#motion-toggle').getAttribute('aria-pressed'), 'true');
   assert.ok(await reduced.locator('.feature-card').first().evaluate(element => getComputedStyle(element).opacity === '1'));
@@ -193,6 +211,7 @@ try {
   await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
   for (let step = 1; step <= 6; step++) await input.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + step * 12, y: y + step, id: 1 }] });
   await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  assert.equal(await reduced.locator('canvas.cursor-trail').isHidden(), true, '触控旋转不应触发鼠标尾迹');
   assert.notEqual(imageHash(await touchCanvas.screenshot()), imageHash(touchBefore), '手机横向触控应旋转纸页');
   await reduced.locator('#scene-reset').click();
   const scrollBefore = await reduced.evaluate(() => scrollY);

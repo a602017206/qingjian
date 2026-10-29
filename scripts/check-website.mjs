@@ -28,5 +28,5 @@ const downloads = [...html.matchAll(/href="https:\/\/github.com\/a602017206\/qin
 assert.deepEqual(downloads.sort(), ['qingjian-macos-arm64.zip', 'qingjian-macos-x64.zip', 'qingjian-windows-x64.exe', 'qingjian-linux-x64.deb', 'qingjian-linux-x64.AppImage', 'qingjian-android-arm64.apk', 'qingjian-ios-unsigned-arm64.ipa'].sort());
 assert.ok(!/<script[^>]+src="https?:/.test(html), '脚本应由本站提供');
 assert.deepEqual([...html.matchAll(/data-feature-scene="([^"]+)"/g)].map(match => match[1]).sort(), ['blocks', 'database', 'history', 'links']);
-for (const file of ['feature-scenes.mjs', 'rotation.mjs', 'scene-kit.mjs']) await stat(path.join(root, file));
+for (const file of ['feature-scenes.mjs', 'rotation.mjs', 'scene-kit.mjs', 'cursor-trail.mjs']) await stat(path.join(root, file));
 console.log(`官网静态检查通过：${languages.length} 种语言、${keys.length} 个文案键、${themes.length} 套主题、${downloads.length} 个真实平台下载入口，站内资源齐全。`);

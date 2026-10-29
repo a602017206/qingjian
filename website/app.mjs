@@ -1,4 +1,5 @@
 import { languages, themes, translate } from './i18n.mjs';
+import { createCursorTrail } from './cursor-trail.mjs';
 
 const root = document.documentElement;
 const readPreference = key => { try { return localStorage.getItem(`qingjian-site-${key}`); } catch { return null; } };
@@ -20,6 +21,7 @@ const screenshot = document.querySelector('#product-screenshot');
 const dialogScreenshot = document.querySelector('#dialog-screenshot');
 const dialog = document.querySelector('#screenshot-dialog');
 const t = key => translate(language, key);
+const cursorTrail = createCursorTrail({ theme: root.dataset.theme, paused: motionPaused });
 
 function applyTranslations() {
   root.lang = language;
@@ -45,6 +47,7 @@ function setTheme(theme) {
   document.querySelector('meta[name="theme-color"]').content = { paper: '#f7f8fc', midnight: '#131b2c', grove: '#f0f6f2' }[theme];
   sceneController?.setTheme?.(theme);
   featureController?.setTheme?.(theme);
+  cursorTrail.setTheme(theme);
 }
 
 function setPreview(value, focus = false) {
@@ -92,6 +95,7 @@ function updateMotionLabel() {
 function pauseMotion(value) {
   motionPaused = value;
   sceneController?.setPaused?.(value); featureController?.setPaused?.(value); updateMotionLabel();
+  cursorTrail.setPaused(value);
 }
 
 for (const button of document.querySelectorAll('[data-set-theme]')) button.addEventListener('click', () => {
