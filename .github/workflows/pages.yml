@@ -7,12 +7,14 @@ on:
       - 'website/**'
       - 'scripts/check-website.mjs'
       - 'tests/e2e/website.mjs'
+      - 'tests/website-rotation.test.mjs'
       - '.github/workflows/pages.yml'
   pull_request:
     paths:
       - 'website/**'
       - 'scripts/check-website.mjs'
       - 'tests/e2e/website.mjs'
+      - 'tests/website-rotation.test.mjs'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -44,6 +46,7 @@ jobs:
       - name: 验证官网
         run: |
           node scripts/check-website.mjs
+          node --test tests/website-rotation.test.mjs
           node tests/e2e/website.mjs
       - name: 保存截图与验证报告
         if: always()

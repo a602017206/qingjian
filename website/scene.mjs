@@ -1,20 +1,6 @@
 import * as THREE from './vendor/three/three.module.min.js';
-
-const palettes = {
-  paper: { paper: 0xffffff, back: 0xdad5f4, edge: 0xb9aceb, accent: 0x7663ce, ink: 0xa4aec4, green: 0x65aa99, light: 0xfff9ef },
-  midnight: { paper: 0xcbd4ed, back: 0x585b91, edge: 0x8385c4, accent: 0x8b6fd5, ink: 0x7787ab, green: 0x5f9d94, light: 0xc5d7ff },
-  grove: { paper: 0xfafef6, back: 0xc8dec9, edge: 0xa0c3aa, accent: 0x4d937c, ink: 0x9fb3a2, green: 0x8aa95c, light: 0xfffce9 },
-};
-
-function roundedShape(width, height, radius) {
-  const x = -width / 2, y = -height / 2, shape = new THREE.Shape();
-  shape.moveTo(x + radius, y); shape.lineTo(x + width - radius, y);
-  shape.quadraticCurveTo(x + width, y, x + width, y + radius);
-  shape.lineTo(x + width, y + height - radius); shape.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-  shape.lineTo(x + radius, y + height); shape.quadraticCurveTo(x, y + height, x, y + height - radius);
-  shape.lineTo(x, y + radius); shape.quadraticCurveTo(x, y, x + radius, y);
-  return shape;
-}
+import { palettes, roundedShape } from './scene-kit.mjs';
+import { createRotation } from './rotation.mjs';
 
 export function createScene(host, { theme = 'paper', paused = false } = {}) {
   let renderer;
@@ -28,6 +14,7 @@ export function createScene(host, { theme = 'paper', paused = false } = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setClearColor(0x000000, 0);
   host.appendChild(renderer.domElement);
+  renderer.domElement.setAttribute('aria-hidden', 'true');
   const materials = [];
   function material(role, extra = {}) {
     const value = new THREE.MeshStandardMaterial({ color: palettes[theme][role], roughness: .68, metalness: .02, ...extra });
@@ -39,10 +26,11 @@ export function createScene(host, { theme = 'paper', paused = false } = {}) {
   const sculpture = new THREE.Group();
   scene.add(sculpture);
   const notes = new THREE.Group();
-  sculpture.add(notes);
+  const turntable = new THREE.Group(), rotation = createRotation();
+  sculpture.add(turntable); turntable.add(notes);
 
   function tile(width, height, radius, depth, mat) {
-    const geometry = new THREE.ExtrudeGeometry(roundedShape(width, height, radius), { depth, bevelEnabled: true, bevelThickness: .012, bevelSize: .012, bevelSegments: 2, steps: 1, curveSegments: 8 });
+    const geometry = new THREE.ExtrudeGeometry(roundedShape(THREE, width, height, radius), { depth, bevelEnabled: true, bevelThickness: .012, bevelSize: .012, bevelSegments: 2, steps: 1, curveSegments: 8 });
     return new THREE.Mesh(geometry, mat);
   }
   function bar(parent, width, height, x, y, mat = ink, z = .055) {
@@ -132,12 +120,13 @@ export function createScene(host, { theme = 'paper', paused = false } = {}) {
 
   let visible = true, disposed = false, available = true, lastTime = 0, time = 0, burst = 0;
   const pointer = new THREE.Vector2();
-  function render(now = performance.now()) {
+  function render(now = performance.now(), force = false) {
     if (disposed || !available) return;
-    if (!paused && lastTime && now - lastTime < 1000 / 40) return;
+    if (!force && !paused && lastTime && now - lastTime < 1000 / 40) return;
     const delta = lastTime ? Math.min((now - lastTime) / 1000, .08) : 0;
     lastTime = now;
     if (!paused) {
+      rotation.step(delta);
       time += delta;
       burst = Math.max(0, burst - delta * .7);
       sculpture.position.y = Math.sin(time * .6) * .08;
@@ -150,6 +139,7 @@ export function createScene(host, { theme = 'paper', paused = false } = {}) {
       diamond.rotation.y += delta * .35; diamond.rotation.z += delta * .18;
       diamond2.rotation.x += delta * .25;
     }
+    turntable.rotation.set(rotation.pitch, rotation.yaw, 0);
     renderer.render(scene, camera);
   }
   function syncLoop() {
@@ -157,7 +147,7 @@ export function createScene(host, { theme = 'paper', paused = false } = {}) {
     renderer.setAnimationLoop(null); lastTime = 0;
     if (visible && !document.hidden) {
       render();
-      if (!paused) renderer.setAnimationLoop(render);
+      if (!paused) renderer.setAnimationLoop(now => render(now));
     }
     host.dataset.animating = String(visible && !document.hidden && !paused);
   }
@@ -166,19 +156,59 @@ export function createScene(host, { theme = 'paper', paused = false } = {}) {
     if (!width || !height || disposed || !available) return;
     camera.aspect = width / height;
     camera.position.z = camera.aspect < 1 ? 10.5 : 9.5;
-    camera.updateProjectionMatrix(); renderer.setSize(width, height, false); render();
+    camera.updateProjectionMatrix(); renderer.setSize(width, height, false); render(performance.now(), true);
   }
   const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(host);
   const intersection = new IntersectionObserver(entries => { visible = entries[0].isIntersecting; syncLoop(); }, { threshold: .01 }); intersection.observe(host);
   function onPointer(event) {
+    if (event.pointerId === activePointer) {
+      if (pendingTouch) {
+        const dx = event.clientX - pendingTouch.x, dy = event.clientY - pendingTouch.y;
+        if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { finishPointer({ pointerId: event.pointerId, type: 'pointercancel' }); return; }
+        if (Math.abs(dx) < 7 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+        rotation.begin(pendingTouch.x, pendingTouch.y, pendingTouch.time); pendingTouch = null; host.dataset.dragging = 'true';
+      }
+      rotation.move(event.clientX, event.clientY); render(performance.now(), true); return;
+    }
+    if (event.pointerType === 'touch') return;
     const rect = host.getBoundingClientRect();
     pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, (event.clientY - rect.top) / rect.height * 2 - 1);
   }
   function resetPointer() { pointer.set(0, 0); }
-  function onClick() { if (!paused) burst = 1; }
+  let activePointer = null, pendingTouch = null;
+  function onPointerDown(event) {
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    activePointer = event.pointerId;
+    if (event.pointerType === 'touch') pendingTouch = { x: event.clientX, y: event.clientY, time: performance.now() };
+    else rotation.begin(event.clientX, event.clientY);
+    pointer.set(0, 0); host.setPointerCapture(event.pointerId); host.dataset.dragging = String(!pendingTouch);
+    if (event.pointerType === 'mouse') { event.preventDefault(); host.focus({ preventScroll: true }); }
+    if (!paused) burst = 1;
+  }
+  function finishPointer(event) {
+    if (event.pointerId !== activePointer) return;
+    rotation.end(!paused && event.type === 'pointerup'); activePointer = null; pendingTouch = null; host.dataset.dragging = 'false';
+    if (host.hasPointerCapture(event.pointerId)) host.releasePointerCapture(event.pointerId);
+    render(performance.now(), true);
+  }
+  function resetRotation() {
+    rotation.reset(); pointer.set(0, 0); activePointer = null; pendingTouch = null; host.dataset.dragging = 'false';
+    render(performance.now(), true);
+  }
+  function onKey(event) {
+    const delta = { ArrowLeft: [-.18, 0], ArrowRight: [.18, 0], ArrowUp: [0, -.12], ArrowDown: [0, .12] }[event.key];
+    if (event.altKey || event.ctrlKey || event.metaKey || (!delta && event.key !== 'Home')) return;
+    event.preventDefault();
+    if (event.key === 'Home') resetRotation();
+    else { rotation.nudge(...delta); render(performance.now(), true); }
+  }
   host.addEventListener('pointermove', onPointer, { passive: true });
   host.addEventListener('pointerleave', resetPointer);
-  host.addEventListener('pointerdown', onClick, { passive: true });
+  host.addEventListener('pointerdown', onPointerDown);
+  host.addEventListener('pointerup', finishPointer);
+  host.addEventListener('pointercancel', finishPointer);
+  host.addEventListener('lostpointercapture', finishPointer);
+  host.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', syncLoop);
   function onContextLost(event) {
     event.preventDefault(); available = false; renderer.setAnimationLoop(null);
@@ -196,19 +226,21 @@ export function createScene(host, { theme = 'paper', paused = false } = {}) {
     for (const mat of materials) mat.dispose();
     renderer.dispose();
     document.removeEventListener('visibilitychange', syncLoop);
-    host.removeEventListener('pointermove', onPointer); host.removeEventListener('pointerleave', resetPointer); host.removeEventListener('pointerdown', onClick);
+    host.removeEventListener('pointermove', onPointer); host.removeEventListener('pointerleave', resetPointer); host.removeEventListener('pointerdown', onPointerDown);
+    host.removeEventListener('pointerup', finishPointer); host.removeEventListener('pointercancel', finishPointer); host.removeEventListener('lostpointercapture', finishPointer); host.removeEventListener('keydown', onKey);
   }
   window.addEventListener('pagehide', event => { if (event.persisted) { visible = false; syncLoop(); } else dispose(); });
   window.addEventListener('pageshow', event => { if (event.persisted) { visible = true; syncLoop(); } });
   resize(); syncLoop(); host.dataset.ready = 'true';
   return {
     get available() { return available; },
-    setPaused(value) { paused = value; syncLoop(); },
+    setPaused(value) { paused = value; if (paused) rotation.end(false); syncLoop(); },
+    resetRotation,
     setTheme(value) {
       if (!palettes[value]) return;
       theme = value;
       for (const mat of materials) mat.color.setHex(palettes[theme][mat.userData.role]);
-      keyLight.color.setHex(palettes[theme].light); render();
+      keyLight.color.setHex(palettes[theme].light); render(performance.now(), true);
     },
     dispose,
   };

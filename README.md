@@ -118,6 +118,8 @@
 
 官网源码直接保存在 [`website/`](website/) 中，使用原生 HTML、CSS 和 JavaScript，无前端框架、无需构建。提供纸白、夜航、青庭三套主题，简体中文、繁体中文、英文三种语言，以及随主题变化的 Three.js 悬浮纸页与星轨动效。偏好保存在访客本机；减少动态偏好默认暂停，WebGL 不可用时显示静态纸页。Three.js 固定版本随站点托管，运行时不依赖外部 CDN。
 
+首屏纸页支持鼠标与手机横向拖动旋转、松手惯性、方向键操作和视角复位；四张功能卡片以共享 Three.js 画布展示内容块搭建、看板流转、想法连接与版本轨迹。功能区同样可以暂停动效，减少动态时仍能主动旋转纸页。
+
 官网主题和语言设置独立于客户端；客户端目前仍为浅色、深色、跟随系统及简繁中文。官网明确区分正式版与测试构建，不将测试能力冒充已发布功能。
 
 本地预览：
@@ -130,6 +132,7 @@ python3 -m http.server 4318 --directory website
 
 ```bash
 node scripts/check-website.mjs
+node --test tests/website-rotation.test.mjs
 node tests/e2e/website.mjs
 ```
 

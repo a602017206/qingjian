@@ -6,12 +6,16 @@ const savePreference = (key, value) => { try { localStorage.setItem(`qingjian-si
 let language = languages.includes(readPreference('language')) ? readPreference('language') : 'zh-CN';
 let preview = 'editor';
 let sceneController;
+let featureController;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 let motionPaused = readPreference('motion') === 'paused' || reducedMotion.matches;
 const languageSelect = document.querySelector('#language');
 const menuToggle = document.querySelector('#menu-toggle');
 const mobileNav = document.querySelector('#mobile-nav');
 const motionButton = document.querySelector('#motion-toggle');
+const featureMotionButton = document.querySelector('#feature-motion-toggle');
+const featureGrid = document.querySelector('.feature-grid');
+const resetButton = document.querySelector('#scene-reset');
 const screenshot = document.querySelector('#product-screenshot');
 const dialogScreenshot = document.querySelector('#dialog-screenshot');
 const dialog = document.querySelector('#screenshot-dialog');
@@ -31,6 +35,7 @@ function applyTranslations() {
   document.querySelector('meta[property="og:locale"]').content = { 'zh-CN': 'zh_CN', 'zh-TW': 'zh_TW', en: 'en_US' }[language];
   menuToggle.setAttribute('aria-label', t(mobileNav.hidden ? 'nav.menu' : 'nav.close'));
   updateMotionLabel();
+  featureController?.setLanguage?.();
 }
 
 function setTheme(theme) {
@@ -39,6 +44,7 @@ function setTheme(theme) {
   for (const button of document.querySelectorAll('[data-set-theme]')) button.setAttribute('aria-pressed', String(button.dataset.setTheme === theme));
   document.querySelector('meta[name="theme-color"]').content = { paper: '#f7f8fc', midnight: '#131b2c', grove: '#f0f6f2' }[theme];
   sceneController?.setTheme?.(theme);
+  featureController?.setTheme?.(theme);
 }
 
 function setPreview(value, focus = false) {
@@ -73,11 +79,19 @@ function closeMenu({ focus = false } = {}) {
 }
 
 function updateMotionLabel() {
-  const label = document.querySelector('[data-motion-label]');
-  label.dataset.i18n = sceneController?.available === false ? 'motion.unavailable' : motionPaused ? 'motion.play' : 'motion.pause';
-  label.textContent = t(label.dataset.i18n);
-  motionButton.setAttribute('aria-pressed', String(motionPaused));
-  document.querySelector('.motion-symbol').textContent = motionPaused ? '▷' : 'Ⅱ';
+  for (const button of document.querySelectorAll('[data-motion-control]')) {
+    const label = button.querySelector('[data-motion-label]');
+    const controller = button.dataset.motionControl === 'features' ? featureController : sceneController;
+    label.dataset.i18n = controller?.available === false ? 'motion.unavailable' : motionPaused ? 'motion.play' : 'motion.pause';
+    label.textContent = t(label.dataset.i18n);
+    button.setAttribute('aria-pressed', String(motionPaused));
+    button.querySelector('.motion-symbol').textContent = motionPaused ? '▷' : 'Ⅱ';
+  }
+}
+
+function pauseMotion(value) {
+  motionPaused = value;
+  sceneController?.setPaused?.(value); featureController?.setPaused?.(value); updateMotionLabel();
 }
 
 for (const button of document.querySelectorAll('[data-set-theme]')) button.addEventListener('click', () => {
@@ -112,13 +126,13 @@ document.querySelector('#screenshot-open').addEventListener('click', () => { dia
 document.querySelector('#screenshot-close').addEventListener('click', () => dialog.close());
 dialog.addEventListener('close', () => document.body.classList.remove('dialog-open'));
 dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
-motionButton.addEventListener('click', () => {
-  motionPaused = !motionPaused; savePreference('motion', motionPaused ? 'paused' : 'playing');
-  sceneController?.setPaused?.(motionPaused); updateMotionLabel();
+for (const button of [motionButton, featureMotionButton]) button.addEventListener('click', () => {
+  pauseMotion(!motionPaused); savePreference('motion', motionPaused ? 'paused' : 'playing');
 });
+resetButton.addEventListener('click', () => sceneController?.resetRotation?.());
 reducedMotion.addEventListener('change', event => {
   if (event.matches) {
-    motionPaused = true; sceneController?.setPaused?.(true); updateMotionLabel();
+    pauseMotion(true);
     root.classList.remove('motion-ready');
   }
 });
@@ -131,7 +145,11 @@ async function loadScene() {
   try {
     const { createScene } = await import('./scene.mjs');
     sceneController = createScene(document.querySelector('#scene'), { theme: root.dataset.theme, paused: motionPaused });
-    if (sceneController.available) motionButton.hidden = false;
+    if (sceneController.available) {
+      motionButton.hidden = false; resetButton.hidden = false;
+      document.querySelector('#scene-hint').hidden = false;
+      document.querySelector('#scene').tabIndex = 0;
+    }
   } catch {
     document.querySelector('#scene').dataset.ready = 'fallback';
     sceneController = { available: false };
@@ -140,9 +158,26 @@ async function loadScene() {
 }
 loadScene();
 document.querySelector('#scene').addEventListener('scene-unavailable', () => {
-  motionButton.hidden = true;
+  motionButton.hidden = true; resetButton.hidden = true;
+  document.querySelector('#scene-hint').hidden = true; document.querySelector('#scene').tabIndex = -1;
   updateMotionLabel();
 });
+
+async function loadFeatureScenes() {
+  try {
+    const { createFeatureScenes } = await import('./feature-scenes.mjs');
+    featureController = createFeatureScenes(featureGrid, { theme: root.dataset.theme, paused: motionPaused, text: t });
+    featureMotionButton.hidden = !featureController.available;
+  } catch { featureGrid.dataset.effectsReady = 'fallback'; featureController = { available: false }; }
+  updateMotionLabel();
+}
+featureGrid.addEventListener('scene-unavailable', () => { featureMotionButton.hidden = true; updateMotionLabel(); });
+if ('IntersectionObserver' in window) {
+  const lazyFeatures = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) { lazyFeatures.disconnect(); loadFeatureScenes(); }
+  }, { rootMargin: '300px' });
+  lazyFeatures.observe(featureGrid);
+} else loadFeatureScenes();
 
 if ('IntersectionObserver' in window) {
   if (!reducedMotion.matches) root.classList.add('motion-ready');

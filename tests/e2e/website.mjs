@@ -4,6 +4,8 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { createHash } from 'node:crypto';
+const imageHash = data => createHash('sha256').update(data).digest('hex');
 
 const root = fileURLToPath(new URL('../../website/', import.meta.url));
 const output = fileURLToPath(new URL('../../test-results/website/', import.meta.url));
@@ -41,8 +43,48 @@ try {
   // 先确认动态状态，再暂停截图；避免软件 WebGL 连续绘制干扰截图稳定等待。
   await page.waitForFunction(() => document.querySelector('#scene').dataset.animating === 'true');
   await page.locator('#motion-toggle').click();
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('#scene canvas')).opacity === '1');
   assert.ok((await canvas.screenshot()).length > 10000, 'WebGL 画布应真实绘制纸页而非空白');
   checks.push('项目子路径资源与真实 WebGL 渲染');
+
+  assert.equal(await page.locator('[data-feature-scene]').count(), 4, '四张功能卡片应各有 Three.js 场景');
+  const paperBefore = await canvas.screenshot();
+  const paperBox = await canvas.boundingBox();
+  await page.mouse.move(paperBox.x + paperBox.width * .48, paperBox.y + paperBox.height * .48);
+  await page.mouse.down();
+  await page.mouse.move(paperBox.x + paperBox.width * .72, paperBox.y + paperBox.height * .58, { steps: 8 });
+  await page.mouse.up();
+  const paperDragged = await canvas.screenshot();
+  assert.notEqual(imageHash(paperDragged), imageHash(paperBefore), '暂停时仍应允许用户主动拖动纸页');
+  await page.locator('#scene-reset').click();
+  const paperReset = await canvas.screenshot();
+  assert.notEqual(imageHash(paperReset), imageHash(paperDragged), '复位应将已旋转的纸页重新绘制');
+  await page.locator('#scene').focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.locator('#scene').evaluate(element => element.blur());
+  const paperKeyed = await canvas.screenshot();
+  assert.notEqual(imageHash(paperKeyed), imageHash(paperReset), '方向键应能旋转纸页');
+  await page.locator('#scene').focus();
+  await page.keyboard.press('Home');
+  await page.locator('#scene').evaluate(element => element.blur());
+  assert.notEqual(imageHash(await canvas.screenshot()), imageHash(paperKeyed), 'Home 应复位实际纸页模型，精确角度归零另由模型测试验证');
+  checks.push('鼠标拖动纸页、暂停下主动旋转、方向键与复位');
+
+  await page.locator('[data-feature-scene="blocks"]').scrollIntoViewIfNeeded();
+  await page.waitForSelector('.feature-grid[data-effects-ready="true"]');
+  assert.equal(await page.locator('.feature-effects-canvas').count(), 1, '四张卡片共用一个 WebGL 画布');
+  await page.locator('#feature-motion-toggle').click();
+  await page.waitForFunction(() => document.querySelector('.feature-grid').dataset.animating === 'true');
+  await page.locator('#feature-motion-toggle').click();
+  assert.equal(await page.locator('.feature-grid').getAttribute('data-animating'), 'false');
+  for (const kind of ['blocks', 'database', 'links', 'history']) {
+    const target = page.locator(`[data-feature-scene="${kind}"]`);
+    await target.scrollIntoViewIfNeeded();
+    assert.ok((await target.screenshot()).length > 2000, `${kind} 场景应真实绘制`);
+  }
+  await page.locator('#features').screenshot({ path: path.join(output, 'feature-effects.png') });
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  checks.push('四种功能场景共享画布、实际渲染与统一动效暂停');
 
   for (const theme of ['paper', 'midnight', 'grove']) {
     await page.locator(`[data-set-theme="${theme}"]`).click();
@@ -60,7 +102,7 @@ try {
   }
   const groveCanvas = await canvas.screenshot();
   await page.locator('[data-set-theme="midnight"]').click();
-  assert.notDeepEqual(await canvas.screenshot(), groveCanvas, '主题应改变 3D 场景的实际渲染');
+  assert.notEqual(imageHash(await canvas.screenshot()), imageHash(groveCanvas), '主题应改变 3D 场景的实际渲染');
   await page.locator('#motion-toggle').click();
   await page.locator('#language').selectOption('en');
   await page.reload({ waitUntil: 'networkidle' });
@@ -117,6 +159,10 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('#language').selectOption('zh-CN');
+  await page.locator('[data-feature-scene="blocks"]').scrollIntoViewIfNeeded();
+  if (await page.locator('#feature-motion-toggle').getAttribute('aria-pressed') === 'false') await page.locator('#feature-motion-toggle').click();
+  await page.locator('[data-feature-scene="blocks"]').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, 'mobile-feature-effects.png') });
   await page.evaluate(() => { document.querySelectorAll('.reveal').forEach(element => element.classList.add('is-visible')); window.scrollTo({ top: 0, behavior: 'instant' }); });
   await page.screenshot({ path: path.join(output, 'mobile-paper.png'), fullPage: true });
   await page.locator('[data-set-theme="midnight"]').click();
@@ -135,13 +181,32 @@ try {
   // 每组独立释放图形上下文，避免软件渲染器同时维护多个页面。
   await page.close();
 
-  const reduced = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 1200, height: 900 } });
+  const reduced = await browser.newPage({ reducedMotion: 'reduce', viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   await reduced.goto(base, { waitUntil: 'networkidle' });
   await reduced.waitForSelector('#scene[data-ready="true"]');
   assert.equal(await reduced.locator('#scene').getAttribute('data-animating'), 'false');
   assert.equal(await reduced.locator('#motion-toggle').getAttribute('aria-pressed'), 'true');
   assert.ok(await reduced.locator('.feature-card').first().evaluate(element => getComputedStyle(element).opacity === '1'));
-  checks.push('系统减少动态偏好默认暂停，正文不隐藏');
+  const touchCanvas = reduced.locator('#scene canvas'), touchBefore = await touchCanvas.screenshot(), touchBox = await touchCanvas.boundingBox();
+  const input = await reduced.context().newCDPSession(reduced);
+  const x = touchBox.x + touchBox.width * .4, y = touchBox.y + touchBox.height * .5;
+  await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+  for (let step = 1; step <= 6; step++) await input.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + step * 12, y: y + step, id: 1 }] });
+  await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  assert.notEqual(imageHash(await touchCanvas.screenshot()), imageHash(touchBefore), '手机横向触控应旋转纸页');
+  await reduced.locator('#scene-reset').click();
+  const scrollBefore = await reduced.evaluate(() => scrollY);
+  await input.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 2 }] });
+  for (let step = 1; step <= 6; step++) {
+    await input.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 1, y: y - step * 25, id: 2 }] });
+    await reduced.waitForTimeout(20);
+  }
+  await input.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await reduced.waitForFunction(before => scrollY > before + 30, scrollBefore);
+  await reduced.locator('[data-feature-scene="blocks"]').scrollIntoViewIfNeeded();
+  await reduced.waitForSelector('.feature-grid[data-effects-ready="true"]');
+  assert.equal(await reduced.locator('.feature-grid').getAttribute('data-animating'), 'false');
+  checks.push('手机横向旋转、竖向滚动、减少动态默认暂停与正文可见');
   await reduced.close();
 
   const fallback = await browser.newPage();
@@ -160,6 +225,9 @@ try {
   assert.equal(await fallback.locator('html').getAttribute('lang'), 'en');
   await fallback.locator('[data-set-theme="grove"]').click();
   assert.equal(await fallback.locator('html').getAttribute('data-theme'), 'grove');
+  await fallback.locator('[data-feature-scene="blocks"]').scrollIntoViewIfNeeded();
+  await fallback.waitForSelector('.feature-grid[data-effects-ready="fallback"]');
+  assert.ok(await fallback.locator('.sketch-title').isVisible(), 'WebGL 失败保留卡片静态示意');
   assert.deepEqual(fallbackErrors, []);
   checks.push('WebGL 不可用及存储禁用时，正文、下载与设置仍可用');
   await fallback.close();
