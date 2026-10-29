@@ -238,6 +238,10 @@ try {
   const fallbackErrors = []; fallback.on('pageerror', error => fallbackErrors.push(error.message));
   await fallback.goto(base, { waitUntil: 'networkidle' });
   await fallback.waitForSelector('#scene[data-ready="fallback"]');
+  assert.equal(await fallback.locator('#motion-toggle').isVisible(), true, '没有 WebGL 时也应能暂停独立的树叶尾迹');
+  await fallback.locator('#motion-toggle').click();
+  assert.equal(await fallback.locator('#motion-toggle').getAttribute('aria-pressed'), 'true');
+  assert.equal(await fallback.locator('canvas.cursor-trail').isHidden(), true);
   assert.equal(await fallback.locator('.paper-fallback').isVisible(), true);
   assert.equal(await fallback.locator('#download a[href*="qingjian-windows-x64.exe"]').count(), 1);
   await fallback.locator('#language').selectOption('en');

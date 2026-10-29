@@ -9,7 +9,7 @@ export function createCursorTrail({ theme = 'paper', paused = false } = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'cursor-trail'; canvas.hidden = true; canvas.setAttribute('aria-hidden', 'true');
   const context = canvas.getContext('2d');
-  if (!context) return { setPaused() {}, setTheme() {} };
+  if (!context) return { available: false, setPaused() {}, setTheme() {} };
   document.body.appendChild(canvas);
   const finePointer = matchMedia('(any-pointer: fine)');
   let leaves = [], last = null, carried = 0, frame = 0, previous = 0, serial = 0, disposed = false;
@@ -109,5 +109,5 @@ export function createCursorTrail({ theme = 'paper', paused = false } = {}) {
   window.addEventListener('pagehide', event => { if (event.persisted) clear(); else dispose(); });
   window.addEventListener('pageshow', event => { if (event.persisted) resize(); });
   resize();
-  return { setPaused(value) { paused = value; if (value) clear(); }, setTheme(value) { if (colors[value]) theme = value; }, dispose };
+  return { available: true, setPaused(value) { paused = value; if (value) clear(); }, setTheme(value) { if (colors[value]) theme = value; }, dispose };
 }

@@ -85,7 +85,7 @@ function updateMotionLabel() {
   for (const button of document.querySelectorAll('[data-motion-control]')) {
     const label = button.querySelector('[data-motion-label]');
     const controller = button.dataset.motionControl === 'features' ? featureController : sceneController;
-    label.dataset.i18n = controller?.available === false ? 'motion.unavailable' : motionPaused ? 'motion.play' : 'motion.pause';
+    label.dataset.i18n = controller?.available === false && !cursorTrail.available ? 'motion.unavailable' : motionPaused ? 'motion.play' : 'motion.pause';
     label.textContent = t(label.dataset.i18n);
     button.setAttribute('aria-pressed', String(motionPaused));
     button.querySelector('.motion-symbol').textContent = motionPaused ? '▷' : 'Ⅱ';
@@ -158,11 +158,12 @@ async function loadScene() {
     document.querySelector('#scene').dataset.ready = 'fallback';
     sceneController = { available: false };
   }
+  motionButton.hidden = !sceneController.available && !cursorTrail.available;
   updateMotionLabel();
 }
 loadScene();
 document.querySelector('#scene').addEventListener('scene-unavailable', () => {
-  motionButton.hidden = true; resetButton.hidden = true;
+  motionButton.hidden = !cursorTrail.available; resetButton.hidden = true;
   document.querySelector('#scene-hint').hidden = true; document.querySelector('#scene').tabIndex = -1;
   updateMotionLabel();
 });
@@ -171,11 +172,12 @@ async function loadFeatureScenes() {
   try {
     const { createFeatureScenes } = await import('./feature-scenes.mjs');
     featureController = createFeatureScenes(featureGrid, { theme: root.dataset.theme, paused: motionPaused, text: t });
-    featureMotionButton.hidden = !featureController.available;
+    featureMotionButton.hidden = !featureController.available && !cursorTrail.available;
   } catch { featureGrid.dataset.effectsReady = 'fallback'; featureController = { available: false }; }
+  featureMotionButton.hidden = !featureController.available && !cursorTrail.available;
   updateMotionLabel();
 }
-featureGrid.addEventListener('scene-unavailable', () => { featureMotionButton.hidden = true; updateMotionLabel(); });
+featureGrid.addEventListener('scene-unavailable', () => { featureMotionButton.hidden = !cursorTrail.available; updateMotionLabel(); });
 if ('IntersectionObserver' in window) {
   const lazyFeatures = new IntersectionObserver(entries => {
     if (entries.some(entry => entry.isIntersecting)) { lazyFeatures.disconnect(); loadFeatureScenes(); }
