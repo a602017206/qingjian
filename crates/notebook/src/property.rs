@@ -14,6 +14,57 @@ pub(crate) fn validate_value(kind: &str, raw: &str) -> Result<()> {
         return Ok(());
     }
     match kind {
+        "date" if raw.trim_start().starts_with('{') => {
+            // 旧客户端允许任意日期原文；仅严格验证本轮明确标记的新格式。
+            let Ok(value) = serde_json::from_str::<Value>(raw) else {
+                return Ok(());
+            };
+            if value.get("kind").and_then(Value::as_str) != Some("dateRange") {
+                return Ok(());
+            }
+            let start = text(&value, "start");
+            let end = text(&value, "end");
+            let zone = text(&value, "timeZone");
+            if start.is_empty()
+                || value.get("end").is_some_and(|v| !v.is_string())
+                || value.get("timeZone").is_some_and(|v| !v.is_string())
+            {
+                return Err("日期范围格式无效".into());
+            }
+            if start.contains('T') {
+                let pattern =
+                    regex::Regex::new(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$")
+                        .unwrap();
+                let parse = |text: &str| -> Result<chrono::DateTime<chrono::FixedOffset>> {
+                    let parts = pattern.captures(text).ok_or("时间格式无效")?;
+                    if text.starts_with("0000") {
+                        return Err("时间年份无效".into());
+                    }
+                    chrono::DateTime::parse_from_rfc3339(&format!("{}:00{}", &parts[1], &parts[2]))
+                        .map_err(|_| "时间格式无效".into())
+                };
+                let a = parse(start).map_err(|_| "开始时间格式无效")?;
+                if zone.is_empty()
+                    || zone.len() > 128
+                    || !zone
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b"/_-+".contains(&c))
+                {
+                    return Err("日期时区格式无效".into());
+                }
+                if !end.is_empty() && parse(end).map_err(|_| "结束时间格式无效")? < a {
+                    return Err("结束时间早于开始".into());
+                }
+            } else {
+                let parse = |text: &str| chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d");
+                let a = parse(start).map_err(|_| "开始日期无效")?;
+                if !zone.is_empty()
+                    || (!end.is_empty() && parse(end).map_err(|_| "结束日期无效")? < a)
+                {
+                    return Err("日期范围无效".into());
+                }
+            }
+        }
         "person" => {
             serde_json::from_str::<Vec<String>>(raw)
                 .map_err(|_| "人员必须是文本名单".to_owned())?;
@@ -217,7 +268,8 @@ pub(crate) fn stamp(page: &mut Value, old: Option<&Value>, local: bool, time: &s
             let value = if let Some(prior) = prior {
                 if matches!(key, "updatedAt" | "updatedBy")
                     && (changed_values(&prior["values"], &row["values"])
-                        || text(prior, "body") != text(row, "body"))
+                        || text(prior, "body") != text(row, "body")
+                        || prior.get("blocks") != row.get("blocks"))
                 {
                     if key == "updatedAt" {
                         time.to_owned()

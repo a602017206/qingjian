@@ -397,6 +397,57 @@ fn database_conflict_previews_show_changed_cell_values() {
 }
 
 #[test]
+fn record_blocks_templates_and_ranges_sync_and_expose_body_conflicts() {
+    let (_root, mut s, a, b) = setup();
+    let mut page = call(&mut s, "pages", json!({"workspaceId":a}))[0].clone();
+    let date=json!({"kind":"dateRange","start":"2026-10-28T23:30+08:00","end":"2026-10-29T01:00+08:00","timeZone":"Asia/Shanghai"}).to_string();
+    page["database"] = json!({"columns":[{"id":"name","name":"名称","type":"text"},{"id":"date","name":"日期","type":"date"}],"rows":[{"id":"row","values":{"name":"记录","date":date},"blocks":[{"id":"body","type":"h2","text":"块正文"}],"body":"## 块正文","blockBody":"## 块正文"}],"templates":[{"id":"template","name":"常用模板","values":{},"blocks":[{"id":"template-body","type":"todo","text":"模板正文"}]}],"defaultTemplateId":"template"});
+    call(&mut s, "save", json!({"workspaceId":a,"page":page}));
+    call(&mut s, "sync", json!({"workspaceId":a}));
+    call(&mut s, "sync", json!({"workspaceId":b}));
+    let mut x = call(&mut s, "pages", json!({"workspaceId":a}))[0].clone();
+    let mut y = call(&mut s, "pages", json!({"workspaceId":b}))[0].clone();
+    assert_eq!(x["database"], y["database"]);
+    for (draft, value) in [(&mut x, "甲端正文"), (&mut y, "乙端正文")] {
+        draft["database"]["rows"][0]["blocks"][0]["text"] = json!(value);
+        draft["database"]["rows"][0]["body"] = json!(value);
+        draft["database"]["rows"][0]["blockBody"] = json!(value);
+    }
+    call(&mut s, "save", json!({"workspaceId":a,"page":x}));
+    call(&mut s, "save", json!({"workspaceId":b,"page":y}));
+    call(&mut s, "sync", json!({"workspaceId":a}));
+    let preview = call(&mut s, "sync", json!({"workspaceId":b}));
+    assert_eq!(preview["status"], "conflict");
+    for (side, value) in [("local", "乙端正文"), ("remote", "甲端正文")] {
+        let bodies = preview["conflicts"][0][side]["database"]["bodies"]
+            .as_array()
+            .expect("冲突预览必须显示记录正文");
+        assert!(bodies
+            .iter()
+            .any(|body| body["text"].as_str().unwrap_or("").contains(value)));
+    }
+    call(
+        &mut s,
+        "resolveSync",
+        json!({"workspaceId":b,"preview":preview,"choices":{"pages/one.json":"remote"}}),
+    );
+    let restored = call(&mut s, "pages", json!({"workspaceId":b}))[0].clone();
+    assert_eq!(
+        restored["database"]["rows"][0]["blocks"][0]["text"],
+        "甲端正文"
+    );
+    assert_eq!(restored["database"]["rows"][0]["values"]["date"], date);
+    assert_eq!(
+        restored["database"]["templates"][0]["blocks"][0]["text"],
+        "模板正文"
+    );
+    assert!(!call(&mut s, "syncBackups", json!({"workspaceId":b}))
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
 fn restoring_purged_history_does_not_reuse_the_first_revision() {
     let (_t, mut s, a, _b) = setup();
     let stale = call(&mut s, "pages", json!({"workspaceId":a}))[0].clone();

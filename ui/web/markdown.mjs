@@ -11,7 +11,7 @@ md.inline.ruler.before('link','page_reference',(state,silent)=>{
  const end=state.src.indexOf(']]',start+2);if(end<0)return false;const title=state.src.slice(start+2,end);if(!title||title.includes('\n'))return false;
  if(!silent){const token=state.push('page_reference','',0);token.content=title;}state.pos=end+2;return true;
 });
-md.renderer.rules.page_reference=(tokens,index,options,env)=>{const title=tokens[index].content,page=env.pages?.find(p=>!p.deleted&&p.title===title),href=page&&safeURL('page:'+page.id);return href?`<a href="${e(href)}" class="page-link">↗ ${e(title)}</a>`:`<span class="unresolved-link">${e(title)}</span>`;};
+md.renderer.rules.page_reference=(tokens,index,options,env)=>{const title=tokens[index].content,matches=(env.pages||[]).filter(p=>!p.deleted&&!p.isTemplate&&p.title===title),page=matches.length===1?matches[0]:null,href=page&&safeURL('page:'+page.id);return href?`<a href="${e(href)}" class="page-link">↗ ${e(title)}</a>`:`<span class="unresolved-link">${e(title)}</span>`;};
 md.renderer.rules.link_open=(tokens,index,options,env,self)=>{
  const token=tokens[index],href=token.attrGet('href')||'';
  if(href.startsWith('asset:')){let label='';for(let i=index+1;i<tokens.length&&tokens[i].type!=='link_close';i++)if(['text','code_inline'].includes(tokens[i].type))label+=tokens[i].content;return `<span class="asset-link" data-asset="${e(href.slice(6))}" data-label="${e(label)}">`;}
@@ -100,4 +100,10 @@ export function renderBlockText(block,pages=[]){
  if(block.type==='code')return e(block.text||'');
  if(block.type==='paragraph'&&isMarkdownSourceBlock(block))return renderMarkdown(block.text,pages);
  const source=String(block.text||'');return source.split('\n').map(line=>inlineMarkdown(line,pages)).join('<br>')+(source.endsWith('\n')?'<span class="block-trailing-line" aria-hidden="true"></span>':'');
+}
+
+// 与正文渲染使用同一个解析器，跳过代码、图片、转义内容和外部链接。
+export function extractPageReferences(block){
+ if(block.type==='code')return [];const source=String(block.text||''),tokens=isMarkdownSourceBlock(block)?md.parse(source,{}):md.parseInline(source,{}),refs=[];
+ for(const token of tokens){if(token.type!=='inline')continue;for(const child of token.children||[]){if(child.type==='page_reference')refs.push({kind:'title',value:child.content});else if(child.type==='link_open'){const href=child.attrGet('href')||'';if(/^page:[a-zA-Z0-9_-]+$/.test(href))refs.push({kind:'id',value:href.slice(5)});}}}return refs;
 }

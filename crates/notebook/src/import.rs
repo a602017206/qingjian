@@ -462,6 +462,32 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                     }
                 }
             }
+            if crate::diagram::unsupported(&p["diagram"]) {
+                warnings.push(
+                    "图表格式版本不受支持，原始图表已保留，但图表内部引用未重映射；请升级后核对。"
+                        .to_owned(),
+                );
+            } else if let Some(nodes) = p
+                .get_mut("diagram")
+                .and_then(|d| d.get_mut("nodes"))
+                .and_then(Value::as_array_mut)
+            {
+                for node in nodes {
+                    let old = text(node, "pageId").to_owned();
+                    if let Some(new) = original_ids.get(&old) {
+                        node["pageId"] = json!(new);
+                    } else if !old.is_empty() {
+                        node["unresolvedPageId"] = json!(old);
+                        node["pageId"] = json!("");
+                        warnings.push(format!(
+                            "图表引用的页面 {old} 未包含在备份中，原引用已保留，请核对。"
+                        ));
+                    }
+                }
+            }
+            if let Some(templates) = p.get_mut("database").and_then(|db| db.get_mut("templates")) {
+                remap_content_references(templates, &original_ids, &asset_ids);
+            }
             if let Some(rows) = p
                 .get_mut("database")
                 .and_then(|db| db.get_mut("rows"))
@@ -471,6 +497,11 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
                     let old = text(row, "pageId").to_owned();
                     if let Some(new) = original_ids.get(&old) {
                         row["pageId"] = json!(new);
+                    }
+                    for key in ["blocks", "body", "blockBody"] {
+                        if let Some(value) = row.get_mut(key) {
+                            remap_content_references(value, &original_ids, &asset_ids);
+                        }
                     }
                 }
             }
@@ -634,6 +665,40 @@ pub fn import(dir: &Path, name: &str, data: &[u8]) -> Result<Value> {
     outcome?;
     Ok(json!({"pages":pages.len(),"assets":assets.len(),"warnings":warnings}))
 }
+fn remap_content_references(
+    value: &mut Value,
+    pages: &HashMap<String, String>,
+    assets: &HashMap<String, String>,
+) {
+    match value {
+        Value::String(body) => {
+            let pattern = Regex::new(r"(page|asset):([A-Za-z0-9_.-]+)").unwrap();
+            *body = pattern
+                .replace_all(body, |captures: &regex::Captures| {
+                    let replacement = if &captures[1] == "page" {
+                        pages.get(&captures[2])
+                    } else {
+                        assets.get(&format!("assets/{}", &captures[2]))
+                    };
+                    replacement
+                        .map(|id| format!("{}:{}", &captures[1], id))
+                        .unwrap_or_else(|| captures[0].to_owned())
+                })
+                .into_owned();
+        }
+        Value::Array(items) => {
+            for item in items {
+                remap_content_references(item, pages, assets);
+            }
+        }
+        Value::Object(object) => {
+            for item in object.values_mut() {
+                remap_content_references(item, pages, assets);
+            }
+        }
+        _ => {}
+    }
+}
 pub(crate) fn html_markdown(input: &str) -> String {
     html_markdown_mode(input, false)
 }
@@ -737,7 +802,15 @@ pub fn export(dir: &Path) -> Result<Value> {
             format!(
                 "# {}\n\n{}",
                 text(p, "title"),
-                crate::markdown::export(&p["blocks"])
+                if p.get("diagram").is_some_and(|d| !d.is_null()) {
+                    format!(
+                        "{}\n\n{}",
+                        crate::diagram::markdown(&p["diagram"]),
+                        crate::markdown::export(&p["blocks"])
+                    )
+                } else {
+                    crate::markdown::export(&p["blocks"])
+                }
             )
             .as_bytes(),
         )

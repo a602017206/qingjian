@@ -44,7 +44,11 @@
     "test:e2e:credentials": "cargo build --locked -p notebook-core --bin server && node tests/e2e/credentials.mjs",
     "test:e2e:editor-stability": "cargo build --locked -p notebook-core --bin server && node tests/e2e/editor-stability.mjs",
     "test:e2e:editor-ime": "cargo build --locked -p notebook-core --bin server && node tests/e2e/editor-ime.mjs",
-    "test:e2e:desktop-window": "cargo build --locked -p notebook-core --bin server && node tests/e2e/desktop-window.mjs"
+    "test:e2e:property-keyboard": "cargo build --locked -p notebook-core --bin server && node tests/e2e/property-keyboard.mjs",
+    "test:e2e:search-stability": "cargo build --locked -p notebook-core --bin server && node tests/e2e/search-stability.mjs",
+    "test:e2e:desktop-window": "cargo build --locked -p notebook-core --bin server && node tests/e2e/desktop-window.mjs",
+    "test:e2e:record-blocks": "cargo build --locked -p notebook-core --bin server && node tests/e2e/record-blocks.mjs",
+    "test:e2e:templates-dates": "cargo build --locked -p notebook-core --bin server && node tests/e2e/templates-dates.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "~2.12.0",

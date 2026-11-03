@@ -1,3 +1,4 @@
+import {freeformMarkdown} from './freeform-model.mjs';
 import {AutoSyncController,reconcileSyncDraft,syncPageContent} from './auto-sync.mjs';
 import {watchMutations,setRequestGate,setSaveRecovery,dataMutations,callAPI} from './api.mjs';
 import {mergeSavedMetadata} from './property-edit.mjs';
@@ -79,7 +80,7 @@ export function createAutoSyncUI({state,recordDraft,workspace,flush,render,rende
    finally{state.busy=false;form.querySelector('[type=submit]').disabled=false;}
   };
  }
- function draftSummary(page){if(!page)return t('syncVersionDeleted');return (page.title||t('emptyTitle'))+'\n'+(page.blocks||[]).map(b=>b.text).join('\n').slice(0,3000)+(page.database?'\n'+t('database')+'\n'+JSON.stringify(page.database.rows).slice(0,3000):'');}
+ function draftSummary(page){if(!page)return t('syncVersionDeleted');return (page.title||t('emptyTitle'))+'\n'+(page.blocks||[]).map(b=>b.text).join('\n').slice(0,3000)+(page.diagram?'\n'+t(page.diagram.mode==='freeform'?'freeformTitle':'mindmapTitle')+'\n'+(page.diagram.mode==='freeform'&&page.diagram.schemaVersion===2?freeformMarkdown(page.diagram):(page.diagram.nodes||[]).map(n=>n.text).join('\n')).slice(0,3000):'')+(page.database?'\n'+t('database')+'\n'+JSON.stringify(page.database.rows).slice(0,3000):'');}
  function settingsHTML(w){return `<section class="auto-sync-settings"><label><input id="auto-sync-enabled" type="checkbox" ${w.autoSync!==false?'checked':''}> ${t('autoSyncTitle')}</label><p class="form-hint">${t('autoSyncHint')}</p><button type="button" class="button plain" data-action="autoSyncBackups">${t('autoSyncDraftBackups')}</button></section>`;}
  function bindSettings(){const input=document.querySelector('#auto-sync-enabled');if(!input)return;const id=context().id;input.onchange=async()=>{const enabled=input.checked;input.disabled=true;try{applyConfig(await callAPI('autoSyncSettings',{workspaceId:id,enabled}));if(id===context().id){controller.resume();redraw();}}catch(error){input.checked=!enabled;toast(errorMessage(error),true);}finally{input.disabled=false;}};}
  async function showBackups(){

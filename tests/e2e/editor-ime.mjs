@@ -24,7 +24,7 @@ try{
   const page=await browser.newPage({viewport:{width,height:900}}),errors=[];page.setDefaultTimeout(5000);page.on('pageerror',error=>errors.push(error.message));
   const open=async id=>{await page.goto(`${base}/?workspace=${workspaceId}&page=${id}`);await page.waitForSelector('#page-title:not([readonly])');};
   // 导航恢复草稿期间正文会暂时只读；点击返回不代表侧览已可编辑。
-  const openRow=async id=>{await page.locator(`[data-action=${width<600?'openMobileRow':'openRow'}][data-id=${id}]`).click();await page.waitForSelector(id==='linked'?'.record-peek #page-title:not([readonly])':'.record-peek #record-body:not([readonly])');};
+  const openRow=async id=>{await page.locator(`[data-action=${width<600?'openMobileRow':'openRow'}][data-id=${id}]`).click();await page.waitForSelector(id==='linked'?'.record-peek #page-title:not([readonly])':'.record-peek .editor');};
   for(const legacy of [false,true]){
    const mode=legacy?'兼容码229':'组词标志';
    await check(`${width} ${mode}属性回车不提交`,async()=>{
@@ -35,7 +35,7 @@ try{
     saved.database.columns.find(c=>c.id==='status').options=['待开始','已完成'];saved.database.rows[0].values.status='待开始';await api('save',{page:saved});
    });
    await check(`${width} ${mode}侧览取消候选不关闭`,async()=>{
-    await open(database.id);await openRow('raw');const input=page.locator('#record-body');await composingInput(input,'保留组词正文');await imeKey(input,'Escape',legacy);assert.equal(await input.count(),1,'取消候选不应关闭记录侧览');assert.equal(await input.evaluate(el=>el===document.activeElement),true);await finishInput(input);await input.press('Escape');await page.waitForSelector('.record-peek',{state:'detached'});assert.equal((await api('pages')).find(p=>p.id===database.id).database.rows[0].body,'保留组词正文');
+    await open(database.id);await openRow('raw');await page.locator('.record-peek [data-edit]').first().click();const input=page.locator('.record-peek .block-input');await composingInput(input,'保留组词正文');await imeKey(input,'Escape',legacy);assert.equal(await input.count(),1,'取消候选不应关闭记录侧览');assert.equal(await input.evaluate(el=>el===document.activeElement),true);await finishInput(input);await input.press('Escape');await page.locator('.record-peek [data-action=closeRecordPeek]').click();await page.waitForSelector('.record-peek',{state:'detached'});assert.equal((await api('pages')).find(p=>p.id===database.id).database.rows[0].body,'保留组词正文');
    });
    await check(`${width} ${mode}独立子页回车不拆块`,async()=>{
     await open(database.id);await openRow('linked');await page.locator('.record-peek [data-edit=text]').click();const input=page.locator('[data-input-block=text]');await composingInput(input,'中文正文');await imeKey(input,'Enter',legacy);assert.equal(await page.locator('.record-peek .block').count(),1,'组词回车不应拆分正文');await finishInput(input);

@@ -1,3 +1,5 @@
+import {readDateValue,dateCoversDay} from './date-ranges.mjs';
+import {cloneRecordBlocks} from './record-blocks.mjs';
 import {clone,uid} from './text.mjs';
 import {t} from './i18n.mjs';
 import {normalizePropertyValue} from './property-edit.mjs';
@@ -28,7 +30,7 @@ function patchValues(page,rows,column,operation,pages){
  if(mode==='clear'){for(const row of rows)row.values[column.id]=multiple?'[]':'';return;}
  const raw=String(operation.value??'');if(!raw.trim())fail('batchRecordValueRequired');
  let value=multiple?JSON.stringify(column.type==='person'?readPersons(raw):readSelection(raw)):normalizePropertyValue(column.type,raw);
- if(column.type==='date'&&!isCalendarDate(value))fail('viewDateRequired');
+ if(column.type==='date')readDateValue(value);
  if(['select','status',...collectionPropertyTypes].includes(column.type)){
   const allowed=new Set(batchPropertyOptions(page,column,pages).map(item=>item.value)),values=multiple?JSON.parse(value):[value];if(!values.length||values.some(v=>!allowed.has(v)))fail('batchRecordOptionInvalid');
  }
@@ -40,10 +42,12 @@ export function batchDatabase(page,ids,operation,pages=[]){
  if(operation.kind==='set'){const column=batchEditableColumns(db).find(c=>c.id===operation.propertyId);if(!column)fail('batchRecordReadonly');patchValues(copy,rows,column,operation,pages);return {page:copy,ids:[...ids]};}
  if(operation.kind==='duplicate'){
   if(rows.some(row=>row.pageId))fail('batchRecordCopyLinked');const created=[];
-  db.rows=db.rows.flatMap(row=>{if(!wanted.has(row.id))return [row];const next=clone(row);next.id=uid();for(const key of ['sequence','createdAt','createdBy','updatedAt','updatedBy'])delete next[key];for(const c of db.columns)if([...systemPropertyTypes,'formula','rollup','button'].includes(c.type))delete next.values[c.id];next.values[db.columns[0].id]=(row.values[db.columns[0].id]||t('emptyRecord'))+' · '+t('copySuffix');created.push(next.id);return [row,next];});return {page:copy,ids:created};
+  db.rows=db.rows.flatMap(row=>{if(!wanted.has(row.id))return [row];const next=clone(row);next.id=uid();if(Array.isArray(next.blocks))next.blocks=cloneRecordBlocks(next.blocks);for(const key of ['sequence','createdAt','createdBy','updatedAt','updatedBy'])delete next[key];for(const c of db.columns)if([...systemPropertyTypes,'formula','rollup','button'].includes(c.type))delete next.values[c.id];next.values[db.columns[0].id]=(row.values[db.columns[0].id]||t('emptyRecord'))+' · '+t('copySuffix');created.push(next.id);return [row,next];});return {page:copy,ids:created};
  }
  if(operation.kind==='remove'){db.rows=db.rows.filter(row=>!wanted.has(row.id));return {page:copy,ids:[]};}
  fail('batchRecordModeInvalid');
 }
-export function visibleDatabaseRows(page,pages,options={}){options=resolveViewOptions(page,options);const rows=queryDatabase(page,pages,options).rows;if(options.view!=='calendar')return rows;const dateColumn=page.database.columns.find(c=>c.id===options.dateColumnId)||page.database.columns.find(c=>c.type==='date');if(!dateColumn)return [];const days=new Set(calendarCells(options.month));return rows.filter(row=>!isCalendarDate(row.values[dateColumn.id])||days.has(row.values[dateColumn.id]));}
+export function visibleDatabaseRows(page,pages,options={}){options=resolveViewOptions(page,options);const rows=queryDatabase(page,pages,options).rows;if(options.view!=='calendar')return rows;const dateColumn=page.database.columns.find(c=>c.id===options.dateColumnId)||page.database.columns.find(c=>c.type==='date');if(!dateColumn)return [];const days=new Set(calendarCells(options.month));return rows.filter(row=>!dateHasValue(row.values[dateColumn.id])||[...days].some(day=>dateCoversDay(row.values[dateColumn.id],day)));}
 export function selectedDatabaseCSV(page,ids,pages){const rows=selectedDatabaseRows(page,ids);return databaseCSV({...page,database:{...page.database,rows}},pages);}
+
+function dateHasValue(raw){try{return !!readDateValue(raw).start;}catch{return false;}}

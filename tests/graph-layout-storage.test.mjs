@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {loadGraphLayout,saveGraphPosition} from '../ui/web/graph-layout-storage.mjs';
+
+function memoryStorage(){const values=new Map();return {getItem:key=>values.get(key)??null,setItem:(key,value)=>values.set(key,value),values};}
+test('位置按工作区和全局或局部图分别保存，后续写入不丢失已有节点',()=>{const storage=memoryStorage();saveGraphPosition(storage,'work-a','','one',{x:150,y:100});saveGraphPosition(storage,'work-a','','two',{x:300,y:180});saveGraphPosition(storage,'work-a','one','one',{x:80,y:90});saveGraphPosition(storage,'work-b','','one',{x:500,y:200});assert.deepEqual({...loadGraphLayout(storage,'work-a','')},{one:{x:150,y:100},two:{x:300,y:180}});assert.equal(loadGraphLayout(storage,'work-a','one').one.x,80);assert.equal(loadGraphLayout(storage,'work-b','').one.x,500);});
+test('损坏或未来版本的布局不会被覆盖，存储失败明确抛错',()=>{const storage=memoryStorage();saveGraphPosition(storage,'w','','a',{x:100,y:100});const key=[...storage.values.keys()][0];storage.values.set(key,'{"version":99,"positions":{}}');assert.throws(()=>saveGraphPosition(storage,'w','','b',{x:100,y:100}));assert.equal(storage.values.get(key),'{"version":99,"positions":{}}');storage.values.set(key,'{');assert.throws(()=>loadGraphLayout(storage,'w',''));assert.throws(()=>saveGraphPosition({getItem(){throw Error('不可读');}},'w','','b',{x:100,y:100}));});
+test('拒绝无效坐标且不接受原型污染属性',()=>{const storage=memoryStorage();assert.throws(()=>saveGraphPosition(storage,'w','','a',{x:Infinity,y:100}));saveGraphPosition(storage,'w','','__proto__',{x:100,y:120});assert.equal(loadGraphLayout(storage,'w','').__proto__.x,100);assert.equal({}.x,undefined);});

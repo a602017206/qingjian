@@ -8,7 +8,7 @@ export function pageLinkTarget(block,pages){
 }
 export function linkedPage(text,pages){
  const value=String(text||'').trim(),id=value.match(/^\[[^\]\n]*\]\(page:([a-zA-Z0-9_-]+)\)$/)?.[1],title=value.match(/^\[\[([^\]\n]+)\]\]$/)?.[1];
- return pages.find(p=>!p.deleted&&(id?p.id===id:title&&p.title===title))||null;
+ const matches=pages.filter(p=>!p.deleted&&!p.isTemplate&&(id?p.id===id:title&&p.title===title));return matches.length===1?matches[0]:null;
 }
 export function pageIcon(page,override=''){
  const value=(page.iconCustomized?page.icon:override||page.icon)||'📄';

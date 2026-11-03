@@ -2,6 +2,7 @@ mod auto_sync;
 mod blocks;
 mod cleanup;
 mod credentials;
+mod diagram;
 pub use credentials::CredentialVault;
 mod git;
 pub use git::configure_network;
@@ -81,6 +82,9 @@ pub(crate) fn validate_page(page: &Value) -> Result<()> {
     if !page.is_object() {
         return Err("笔记必须是页面对象".into());
     }
+    if let Some(diagram) = page.get("diagram").filter(|v| !v.is_null()) {
+        crate::diagram::validate(diagram)?;
+    }
     if let Some(blocks) = page.get("blocks") {
         let blocks = blocks.as_array().ok_or("页面内容块格式无效")?;
         let mut ids = HashSet::new();
@@ -95,6 +99,12 @@ pub(crate) fn validate_page(page: &Value) -> Result<()> {
             }
         }
         crate::blocks::layout(blocks)?;
+    }
+    if page
+        .get("isTemplate")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("页面模板标记格式无效".into());
     }
     if let Some(tags) = page.get("tags") {
         if !tags
@@ -147,12 +157,47 @@ pub(crate) fn validate_page(page: &Value) -> Result<()> {
                 }
             }
         }
+        let mut template_ids = HashSet::new();
+        if let Some(templates) = db.get("templates") {
+            let templates = templates.as_array().ok_or("数据库模板格式无效")?;
+            if templates.len() > 100 {
+                return Err("数据库模板最多一百个".into());
+            }
+            for template in templates {
+                if !valid_id(text(template, "id"))
+                    || !template_ids.insert(text(template, "id"))
+                    || text(template, "name").trim().is_empty()
+                    || text(template, "name").len() > 1024
+                    || !template["blocks"].is_array()
+                    || !template["values"]
+                        .as_object()
+                        .is_some_and(|values| values.values().all(Value::is_string))
+                {
+                    return Err("数据库模板标识、名称或内容格式无效".into());
+                }
+                validate_page(&json!({"blocks":template["blocks"]}))?;
+            }
+        }
+        if let Some(default_id) = db.get("defaultTemplateId") {
+            if !default_id.is_string()
+                || (!text(db, "defaultTemplateId").is_empty()
+                    && !template_ids.contains(text(db, "defaultTemplateId")))
+            {
+                return Err("数据库默认模板不存在".into());
+            }
+        }
         crate::property::validate_database(db)?;
         crate::views::validate(db)?;
         let mut row_ids = HashSet::new();
         for row in rows {
             if !row_ids.insert(text(row, "id")) {
                 return Err("数据库记录标识重复".into());
+            }
+            if let Some(blocks) = row.get("blocks").filter(|v| !v.is_null()) {
+                validate_page(&json!({"blocks": blocks}))?;
+            }
+            if row.get("blockBody").is_some_and(|value| !value.is_string()) {
+                return Err("数据库记录值格式无效".into());
             }
         }
         if rows.iter().any(|r| {
@@ -296,6 +341,11 @@ impl Store {
             return Err("页面标识无效".into());
         };
         let old = pages.iter().find(|o| text(o, "id") == id);
+        if crate::diagram::unsupported(&p["diagram"])
+            || old.is_some_and(|o| crate::diagram::unsupported(&o["diagram"]))
+        {
+            return Err("思维导图版本过新，已禁止修改以保护原始数据".into());
+        }
         if let Some(old) = old {
             if p["revision"] != old["revision"] {
                 return Err("页面已在其他窗口更新，请刷新后继续。当前编辑没有覆盖磁盘内容".into());

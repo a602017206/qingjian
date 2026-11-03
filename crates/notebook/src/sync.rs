@@ -73,6 +73,9 @@ fn summary(
             .transpose()?
             .unwrap_or(Value::Null);
         let mut out = json!({"title":page["title"],"updatedAt":page["updatedAt"],"deleted":page["deleted"],"parentId":page["parentId"],"blocks":[],"database":null});
+        if let Some(diagram) = page.get("diagram").filter(|d| !d.is_null()) {
+            out["diagram"] = json!({"mode":diagram["mode"],"nodes":diagram["nodes"].as_array().map(Vec::len).unwrap_or(0),"text":crate::diagram::markdown(diagram).chars().take(3000).collect::<String>()});
+        }
         // 冲突面板展示可核对的摘要，完整双方版本始终保留在恢复点中。
         let other_blocks: BTreeMap<_, _> = other["blocks"]
             .as_array()
@@ -99,7 +102,7 @@ fn summary(
                     if old.map(|r| &r["values"][key]) == Some(value) {
                         continue;
                     }
-                    cells.push(json!({"label":format!("{} · {}",if title.is_empty(){"未命名记录"}else{title},text(column,"name")),"value":value.as_str().unwrap_or("").chars().take(500).collect::<String>()}));
+                    cells.push(json!({"label":format!("{} · {}",if title.is_empty(){"未命名记录"}else{title},text(column,"name")),"type":column["type"],"value":value.as_str().unwrap_or("").chars().take(500).collect::<String>()}));
                     if cells.len() >= 12 {
                         break;
                     }
@@ -108,7 +111,38 @@ fn summary(
                     break;
                 }
             }
-            out["database"] = json!({"columns":columns.len(),"rows":rows.len(),"cells":cells});
+            let bodies=rows.iter().filter(|row| {
+                let old=other_rows.get(text(row,"id"));
+                old.map(|old| old.get("blocks") != row.get("blocks") || old.get("body") != row.get("body")).unwrap_or(true)
+            }).take(12).map(|row| {
+                let blocks=row["blocks"].as_array();
+                let body=if text(row,"body").is_empty() {
+                    blocks.map(|blocks| blocks.iter().flat_map(|block| text(block,"text").chars().chain(std::iter::once('\n'))).take(500).collect::<String>()).unwrap_or_default()
+                } else { text(row,"body").chars().take(500).collect::<String>() };
+                json!({"title":columns.first().map(|column|text(&row["values"],text(column,"id"))).unwrap_or(""),"text":body,"blocks":blocks.map(Vec::len).unwrap_or(0)})
+            }).collect::<Vec<_>>();
+            let templates_changed = db.get("templates") != other["database"].get("templates")
+                || db.get("defaultTemplateId") != other["database"].get("defaultTemplateId");
+            let names = db["templates"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .take(12)
+                        .map(|item| text(item, "name").chars().take(80).collect::<String>())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let default_name = db["templates"]
+                .as_array()
+                .and_then(|items| {
+                    items
+                        .iter()
+                        .find(|item| text(item, "id") == text(db, "defaultTemplateId"))
+                })
+                .map(|item| text(item, "name"))
+                .unwrap_or("");
+            out["database"] = json!({"columns":columns.len(),"rows":rows.len(),"cells":cells,"bodies":bodies,"templatesChanged":templates_changed,"templateNames":names,"defaultTemplateName":default_name});
         }
         Ok(out)
     } else {
